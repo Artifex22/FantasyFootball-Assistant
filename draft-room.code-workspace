@@ -1,0 +1,10 @@
+{
+  "folders": [
+    { "path": "." }
+  ],
+  "settings": {
+    "files.eol": "\n",
+    "editor.formatOnSave": false,
+    "security.workspace.trust.untrustedFiles": "open"
+  }
+}

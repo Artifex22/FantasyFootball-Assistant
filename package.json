@@ -1,0 +1,13 @@
+{
+  "name": "draft-room-local",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dependency-free local fantasy football draft assistant",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

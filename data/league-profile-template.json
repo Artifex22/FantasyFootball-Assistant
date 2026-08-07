@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "league": {
+    "name": "Example league",
+    "teams": 12,
+    "rounds": 16,
+    "rosterSize": 16,
+    "draftSlot": 3,
+    "scoring": "half",
+    "startingQbs": 1,
+    "useProjectedKeepers": false,
+    "userManagerId": "my-team"
+  },
+  "managerGroups": [
+    { "id": "team-1", "name": "Team 1", "aliases": ["Team 1"], "confidence": "none" },
+    { "id": "team-2", "name": "Team 2", "aliases": ["Team 2"], "confidence": "none" },
+    { "id": "my-team", "name": "My Team", "aliases": ["My Team"], "confidence": "none" }
+  ],
+  "formerManagerGroups": [],
+  "seasons": [
+    {
+      "year": 2025,
+      "league": "Example league",
+      "teams": 12,
+      "picks": [[1, 1, "Player name", "NFL", "RB", "Team 1"]]
+    }
+  ],
+  "finalRosters": [["My Team", "Player name", "Draft", "RB"]],
+  "projectedKeepers": [["my-team", "Player name", 4]]
+}

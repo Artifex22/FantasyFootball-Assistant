@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Local-first fantasy football draft decision assistant">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>Draft Room — Fantasy Football Intelligence</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to draft board</a>
+  <header class="topbar">
+    <div class="brand-lockup">
+      <div class="brand-mark" aria-hidden="true">DR</div>
+      <div>
+        <p class="eyebrow">Fantasy intelligence / 2026</p>
+        <h1>Draft Room</h1>
+      </div>
+    </div>
+    <div class="topbar-meta">
+      <span class="status-dot" aria-hidden="true"></span>
+      <span>Local-first</span>
+      <span class="divider" aria-hidden="true"></span>
+      <span id="data-freshness">Research snapshot: Aug 5</span>
+    </div>
+  </header>
+
+  <nav class="main-nav" aria-label="Primary navigation">
+    <button class="nav-button active" type="button" data-view="board" aria-current="page">Draft board</button>
+    <button class="nav-button" type="button" data-view="rankings">Full rankings</button>
+    <button class="nav-button" type="button" data-view="brain">Draft brain</button>
+    <button class="nav-button" type="button" data-view="accuracy">Accuracy lab</button>
+    <button class="nav-button" type="button" data-view="model">Model studio</button>
+    <button class="nav-button" type="button" data-view="data">Data & sources</button>
+  </nav>
+
+  <main id="main-content">
+    <section class="view active" id="view-board" aria-labelledby="board-title">
+      <div class="settings-bar">
+        <label>
+          <span>Format</span>
+          <select id="scoring-format">
+            <option value="half" selected>Half PPR</option>
+            <option value="ppr">Full PPR</option>
+            <option value="standard">Standard</option>
+          </select>
+        </label>
+        <label>
+          <span>Teams</span>
+          <select id="league-teams">
+            <option value="8">8</option>
+            <option value="10">10</option>
+            <option value="12" selected>12</option>
+            <option value="14">14</option>
+          </select>
+        </label>
+        <label>
+          <span>Your slot</span>
+          <select id="draft-slot"></select>
+        </label>
+        <label>
+          <span>Starting QBs</span>
+          <select id="starting-qbs">
+            <option value="1" selected>1 QB</option>
+            <option value="2">Superflex / 2 QB</option>
+          </select>
+        </label>
+        <label class="toggle-label">
+          <input id="projected-keepers" type="checkbox">
+          <span>Projected keepers</span>
+        </label>
+        <label>
+          <span>Your keeper</span>
+          <select id="user-keeper"><option value="">None</option></select>
+        </label>
+        <label>
+          <span>Keeper round</span>
+          <select id="user-keeper-round"></select>
+        </label>
+        <button class="text-button" id="reset-draft" type="button">Reset draft</button>
+      </div>
+
+      <section class="league-setup-banner" id="league-setup-banner">
+        <div>
+          <p class="eyebrow">Start with your league</p>
+          <h2>Import a league profile for personalized draft intelligence</h2>
+          <p>The public app starts blank. Import team names, draft history, final rosters, keepers, and league settings from one local JSON file.</p>
+        </div>
+        <div class="button-row">
+          <button class="primary-button" id="league-import-trigger" type="button">Import league profile</button>
+          <button class="secondary-button" id="league-template-download" type="button">Download template</button>
+        </div>
+      </section>
+
+      <div class="board-shell">
+        <section class="board-main">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">On the clock intelligence</p>
+              <h2 id="board-title">Best available</h2>
+            </div>
+            <div class="pick-clock" aria-live="polite">
+              <span id="on-clock-manager">Pick</span>
+              <strong id="current-pick">1.01</strong>
+            </div>
+          </div>
+
+          <section class="live-draft-board" aria-label="Live snake draft grid">
+            <div class="draft-grid-toolbar">
+              <div><span class="status-dot" aria-hidden="true"></span><strong>Live draft tracker</strong></div>
+              <div class="draft-grid-actions"><span id="draft-round-label">Draft rounds · horizontally scrollable</span><button class="custom-pick-button" id="open-custom-pick" type="button">+ Custom pick</button></div>
+            </div>
+            <div class="draft-grid-scroll"><div class="draft-grid" id="draft-grid"></div></div>
+          </section>
+
+          <div class="recommendation-grid" id="recommendations" aria-label="Top recommendations"></div>
+
+          <div class="board-toolbar">
+            <label class="search-field">
+              <span class="visually-hidden">Search players or teams</span>
+              <input id="player-search" type="search" placeholder="Search player or team" autocomplete="off">
+            </label>
+            <div class="position-filters" role="group" aria-label="Filter by position">
+              <button class="filter-button active" type="button" data-position="ALL" aria-pressed="true">All</button>
+              <button class="filter-button" type="button" data-position="QB" aria-pressed="false">QB</button>
+              <button class="filter-button" type="button" data-position="RB" aria-pressed="false">RB</button>
+              <button class="filter-button" type="button" data-position="WR" aria-pressed="false">WR</button>
+              <button class="filter-button" type="button" data-position="TE" aria-pressed="false">TE</button>
+              <button class="filter-button" type="button" data-position="K" aria-pressed="false">K</button>
+              <button class="filter-button" type="button" data-position="DST" aria-pressed="false">DST</button>
+              <button class="filter-button rookie-filter" type="button" data-position="ROOKIE" aria-pressed="false">Rookies</button>
+              <button class="filter-button watchlist-filter" id="watchlist-filter" type="button" data-position="WATCHLIST" aria-pressed="false"><span aria-hidden="true">★</span> Watchlist <b id="watchlist-count">0</b></button>
+            </div>
+            <label class="compact-select comparison-select">
+              <span>Compare with</span>
+              <select id="comparison-source"></select>
+            </label>
+            <button class="text-button small comparison-import-button" id="open-ranking-import" type="button">Paste board</button>
+            <label class="compact-select">
+              <span class="visually-hidden">Sort players</span>
+              <select id="sort-players">
+                <option value="recommendation">Model rank</option>
+                <option value="ecr">Baseline rank</option>
+                <option value="tier">Tier</option>
+                <option value="value">ADP value</option>
+                <option value="certainty">Certainty</option>
+                <option value="return">Chance to return</option>
+                <option value="comparison" id="sort-comparison-option">Comparison rank</option>
+                <option value="edge">Model edge</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="table-wrap">
+            <table class="player-table">
+              <thead>
+                <tr>
+                  <th scope="col"><button class="column-sort-button" type="button" data-board-sort="recommendation">Model</button></th>
+                  <th scope="col">Player</th>
+                  <th scope="col" id="comparison-rank-heading"><button class="column-sort-button" type="button" data-board-sort="comparison"><span id="comparison-rank-label">App rank</span></button></th>
+                  <th scope="col"><button class="column-sort-button" type="button" data-board-sort="tier">Tier</button></th>
+                  <th scope="col" id="comparison-edge-heading"><button class="column-sort-button" type="button" data-board-sort="edge"><span id="comparison-edge-label">Model edge</span></button></th>
+                  <th scope="col"><button class="column-sort-button" type="button" data-board-sort="certainty">Confidence</button></th>
+                  <th scope="col"><button class="column-sort-button" type="button" data-board-sort="return">Returns</button></th>
+                  <th scope="col"><span class="visually-hidden">Draft action</span></th>
+                </tr>
+              </thead>
+              <tbody id="player-rows"></tbody>
+            </table>
+          </div>
+          <div class="player-list-footer">
+            <span id="player-list-status">Loading available players…</span>
+            <button class="text-button small" id="show-more-players" type="button" hidden>Show more</button>
+          </div>
+        </section>
+
+        <aside class="draft-sidebar" aria-label="Draft context">
+          <section class="side-card roster-card">
+            <div class="side-heading">
+              <h3>Your roster</h3>
+              <span id="roster-count">0 / 16</span>
+            </div>
+            <div class="roster-slots" id="roster-slots"></div>
+          </section>
+
+          <section class="side-card opponent-card">
+            <div class="side-heading">
+              <h3>On-clock brain</h3>
+              <span id="opponent-sample">History</span>
+            </div>
+            <div id="opponent-brain"></div>
+          </section>
+
+          <section class="side-card builder-card">
+            <div class="side-heading">
+              <h3>Team builder</h3>
+              <span id="builder-round">Adaptive</span>
+            </div>
+            <div id="team-builder"></div>
+          </section>
+
+          <section class="side-card draft-log-card">
+            <div class="side-heading">
+              <h3>Draft log</h3>
+              <button class="text-button small" id="undo-pick" type="button" disabled>Undo</button>
+            </div>
+            <ol class="draft-log" id="draft-log"></ol>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <section class="view content-view rankings-view" id="view-rankings" aria-labelledby="rankings-title" hidden>
+      <div class="content-hero split-hero rankings-hero">
+        <div>
+          <p class="eyebrow">Macro draft board</p>
+          <h2 id="rankings-title">Full player rankings</h2>
+          <p>Compare the complete pool across tiers, projections, replacement value, workload, schedule, durability, and team environment. Rankings remain independent of who has already been drafted.</p>
+        </div>
+        <div class="rankings-key">
+          <span>Scoring</span>
+          <strong id="league-summary-line">League profile loading…</strong>
+          <small>Rank #1 schedule is easiest</small>
+        </div>
+      </div>
+
+      <div class="accuracy-summary rankings-summary" id="rankings-summary"></div>
+
+      <section class="tier-overview">
+        <div class="side-heading"><h3>Tier map</h3><span id="tier-map-label">All positions</span></div>
+        <div class="tier-grid" id="ranking-tier-grid"></div>
+      </section>
+
+      <section class="rankings-panel">
+        <details class="ranking-glossary">
+          <summary>How to read every rankings column</summary>
+          <div class="glossary-grid">
+            <article><strong>Model</strong><p>Overall order from the weighted model. Lower rank is better.</p></article>
+            <article><strong>Comparison</strong><p>The selected platform, market, or analyst rank. Model edge shows value when this model ranks a player earlier and reach when it ranks him later.</p></article>
+            <article><strong>Player</strong><p>Current team, position rank, rookie status, and draft status. Click the name for the full profile.</p></article>
+            <article><strong>Tier</strong><p>Players with similar draft value. A tier break matters more than a one-spot rank difference.</p></article>
+            <article><strong>Base</strong><p>The dated ESPN/FantasyPros baseline rank before this league's model adjustments. Lower is better.</p></article>
+            <article><strong>Proj</strong><p>Mike Clay projected 2026 half-PPR season points. Higher is better; missing values remain blank.</p></article>
+            <article><strong>VOR</strong><p>Projection value over the flex-optimized replacement player, normalized 0–100. Higher is better.</p></article>
+            <article><strong>Opp</strong><p>Projected opportunity from attempts, carries, targets, and team shares, normalized 0–100. Higher means more volume.</p></article>
+            <article><strong>Schedule</strong><p>Composite ease score, normalized 0–100. Higher is easier. REG is Weeks 1–14; PO is Weeks 15–17.</p></article>
+            <article><strong>Durability</strong><p>Availability score using history, age curve, workload, and projected games. Higher is safer; confidence reflects sample size.</p></article>
+            <article><strong>Environment</strong><p>OFF is offense quality, OL is offensive line, and CAST is position-specific supporting cast. Higher is better.</p></article>
+            <article><strong>Market</strong><p>ECR minus ADP. Positive means experts rank the player earlier than the market, suggesting potential value.</p></article>
+          </div>
+        </details>
+        <div class="board-toolbar rankings-toolbar">
+          <label class="search-field">
+            <span class="visually-hidden">Search full rankings</span>
+            <input id="ranking-search" type="search" placeholder="Search full rankings" autocomplete="off">
+          </label>
+          <div class="position-filters" role="group" aria-label="Filter full rankings by position">
+            <button class="ranking-filter active" type="button" data-ranking-position="ALL" aria-pressed="true">All</button>
+            <button class="ranking-filter" type="button" data-ranking-position="QB" aria-pressed="false">QB</button>
+            <button class="ranking-filter" type="button" data-ranking-position="RB" aria-pressed="false">RB</button>
+            <button class="ranking-filter" type="button" data-ranking-position="WR" aria-pressed="false">WR</button>
+            <button class="ranking-filter" type="button" data-ranking-position="TE" aria-pressed="false">TE</button>
+            <button class="ranking-filter" type="button" data-ranking-position="K" aria-pressed="false">K</button>
+            <button class="ranking-filter" type="button" data-ranking-position="DST" aria-pressed="false">DST</button>
+            <button class="ranking-filter rookie-filter" type="button" data-ranking-position="ROOKIE" aria-pressed="false">Rookies</button>
+          </div>
+          <label class="compact-select comparison-select">
+            <span>Compare with</span>
+            <select id="ranking-comparison-source"></select>
+          </label>
+          <label class="compact-select">
+            <span class="visually-hidden">Sort full rankings</span>
+            <select id="ranking-sort">
+              <option value="model">Model rank</option>
+              <option value="baseline">Baseline rank</option>
+              <option value="projection">Projected points</option>
+              <option value="vor">Projection / VOR</option>
+              <option value="opportunity">Opportunity</option>
+              <option value="schedule">Schedule</option>
+              <option value="durability">Durability</option>
+              <option value="tier">Tier</option>
+              <option value="comparison">Comparison rank</option>
+              <option value="edge">Model edge</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="table-wrap rankings-table-wrap">
+          <table class="player-table rankings-table">
+            <thead>
+              <tr>
+                <th scope="col" title="Weighted model rank; lower is better">Model</th>
+                <th scope="col" id="ranking-comparison-rank-heading" title="Selected comparison rank">Compare</th>
+                <th scope="col" id="ranking-comparison-edge-heading" title="Model rank versus selected comparison">Edge</th>
+                <th scope="col" title="Click a player name for full details">Player</th>
+                <th scope="col" title="Players with similar draft value">Tier</th>
+                <th scope="col" title="Dated source baseline rank; lower is better">Base</th>
+                <th scope="col" title="Projected 2026 half-PPR points">Proj</th>
+                <th scope="col" title="Value over replacement, normalized 0–100">VOR</th>
+                <th scope="col" title="Projected opportunity, normalized 0–100">Opp</th>
+                <th scope="col" title="Schedule ease; higher is easier">Schedule</th>
+                <th scope="col" title="Availability estimate; higher is safer">Durability</th>
+                <th scope="col" title="Offense, line, and supporting cast scores">Environment</th>
+                <th scope="col" title="Expert rank versus market ADP">Market</th>
+              </tr>
+            </thead>
+            <tbody id="ranking-rows"></tbody>
+          </table>
+        </div>
+        <p class="rankings-note">Projection points are Mike Clay 2026 half-PPR. Normalized 0–100 grades show position and overall scope directly underneath. Hover any value for its definition, inputs, and comparison pool.</p>
+      </section>
+    </section>
+
+    <section class="view content-view" id="view-brain" aria-labelledby="brain-title" hidden>
+      <div class="content-hero">
+        <p class="eyebrow">Local indexed draft memory</p>
+        <h2 id="brain-title">Draft brain</h2>
+        <p>Historical behavior informs opponent pressure and return estimates. Low-sample or uncertain team aliases fall back toward league averages instead of pretending certainty.</p>
+      </div>
+      <div class="accuracy-summary" id="brain-summary"></div>
+      <section class="model-panel brain-order-panel">
+        <div class="side-heading"><h3>2026 draft order</h3><span>Drag-free editable slots</span></div>
+        <p class="panel-copy">Set every manager's slot before the draft. Your selected slot stays synchronized with the main board.</p>
+        <div class="draft-order-editor" id="draft-order-editor"></div>
+      </section>
+      <section class="source-ledger brain-ledger">
+        <div class="side-heading"><h3>Manager profiles</h3><span id="manager-history-label">No history imported</span></div>
+        <div class="manager-profile-grid" id="manager-profile-grid"></div>
+      </section>
+      <section class="method-callout">
+        <div><p class="eyebrow">Import quality</p><h3>Stable manager IDs improve predictions</h3></div>
+        <p>Map every historical team alias to one stable manager ID. Unmapped or low-sample managers automatically regress toward current market and league-wide position trends.</p>
+      </section>
+    </section>
+
+    <section class="view content-view" id="view-accuracy" aria-labelledby="accuracy-title" hidden>
+      <div class="content-hero">
+        <p class="eyebrow">Evidence before influence</p>
+        <h2 id="accuracy-title">Analyst accuracy lab</h2>
+        <p>Verdicts distinguish a verified preseason-vs-results backtest from reputation, current rankings, or platform ADP. A brand is not treated as one analyst.</p>
+      </div>
+      <div class="accuracy-summary" id="accuracy-summary"></div>
+      <section class="roundtable-panel">
+        <div class="side-heading"><h3>Black-box roundtable</h3><span id="roundtable-lock">Locked before results</span></div>
+        <p class="panel-copy" id="roundtable-method"></p>
+        <div class="critic-grid" id="critic-grid"></div>
+      </section>
+      <section class="roundtable-panel">
+        <div class="side-heading"><h3>Two-pass audit trail</h3><span>Initial → Pass 1 → Pass 2 → Result</span></div>
+        <div class="table-wrap roundtable-table-wrap">
+          <table class="roundtable-table">
+            <thead><tr><th>Player</th><th>Baseline</th><th>Specialist loop</th><th>CV remake</th><th>Rank range</th><th>Clay half PPR</th><th>Hindsight</th><th>2025 result</th></tr></thead>
+            <tbody id="roundtable-body"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="roundtable-panel">
+        <div class="side-heading"><h3>Promotion gates</h3><span id="promotion-status">Research only</span></div>
+        <p class="panel-copy">Historical weights stay isolated from the live draft model until every validation gate passes.</p>
+        <div class="promotion-grid" id="promotion-gates"></div>
+      </section>
+      <section class="roundtable-panel">
+        <div class="side-heading"><h3>Wait-return calibration</h3><span>League draft behavior only</span></div>
+        <p class="panel-copy">Tests whether a player available now actually survives to the user's next snake-draft pick. Each season is scored only with parameters learned from earlier drafts.</p>
+        <div class="promotion-grid" id="wait-calibration-summary"></div>
+      </section>
+      <section class="roundtable-panel">
+        <div class="side-heading"><h3>Multi-season expansion</h3><span>Five frozen seasons</span></div>
+        <p class="panel-copy">Each test season is ranked using weights fitted only on earlier seasons. Advanced critics abstain when their frozen inputs are unavailable.</p>
+        <div class="expansion-ledger" id="expansion-ledger"></div>
+      </section>
+      <div class="source-grid" id="source-grid"></div>
+      <section class="method-callout">
+        <div>
+          <p class="eyebrow">Comparison standard</p>
+          <h3>What counts as comparable?</h3>
+        </div>
+        <p>A frozen preseason rank, the same scoring format, a defined player pool, and final fantasy production. Missing any one of these produces a research note—not an accuracy score.</p>
+      </section>
+    </section>
+
+    <section class="view content-view" id="view-model" aria-labelledby="model-title" hidden>
+      <div class="content-hero split-hero">
+        <div>
+          <p class="eyebrow">Transparent and editable</p>
+          <h2 id="model-title">Model studio</h2>
+          <p>Weights apply only to available inputs, then renormalize. Imported metrics increase coverage; missing data never silently becomes a made-up fact.</p>
+        </div>
+        <div class="score-demo">
+          <span>Selected player</span>
+          <strong id="model-player-name">Jahmyr Gibbs</strong>
+          <b id="model-player-score">—</b>
+        </div>
+      </div>
+      <div class="model-layout">
+        <section class="model-panel">
+          <div class="side-heading">
+            <h3>Signal weights</h3>
+            <button class="text-button small" id="reset-weights" type="button">Defaults</button>
+          </div>
+          <div id="weight-controls"></div>
+        </section>
+        <section class="model-panel">
+          <div class="side-heading">
+            <h3>Score anatomy</h3>
+            <span id="coverage-label">Coverage —</span>
+          </div>
+          <div id="score-anatomy"></div>
+          <div class="formula-note">
+            <strong>Draft recommendation</strong>
+            <span>Base model score + roster need + tier-cliff urgency − duplication penalty</span>
+          </div>
+        </section>
+      </div>
+      <section class="model-notes">
+        <article><span>01</span><h3>Consensus anchors</h3><p>Current ECR reduces single-analyst variance, with expert disagreement retained as a risk signal.</p></article>
+        <article><span>02</span><h3>Replacement matters</h3><p>Value is measured against the likely replacement player for your league size and lineup—not raw points alone.</p></article>
+        <article><span>03</span><h3>Context stays dated</h3><p>Every built-in projection, schedule, durability, and team-environment input carries a dated local provenance label.</p></article>
+      </section>
+    </section>
+
+    <section class="view content-view" id="view-data" aria-labelledby="data-title" hidden>
+      <div class="content-hero">
+        <p class="eyebrow">Controlled local workflow</p>
+        <h2 id="data-title">Data & sources</h2>
+        <p>The app never fetches the internet. Research was reviewed as text, then entered into local data files. You control every future update.</p>
+      </div>
+      <div class="data-layout">
+        <section class="model-panel league-profile-panel">
+          <div class="side-heading"><h3>League profile</h3><span id="league-profile-status">Blank profile</span></div>
+          <p class="panel-copy" id="league-profile-summary">Import a local JSON profile to add your managers, historical drafts, keeper pool, and league settings.</p>
+          <div class="button-row">
+            <button class="primary-button" id="league-import-trigger-data" type="button">Import league profile</button>
+            <button class="secondary-button" id="export-league-profile" type="button">Export profile</button>
+            <button class="text-button" id="clear-league-profile" type="button">Use blank profile</button>
+          </div>
+          <p class="import-status" id="league-import-status" aria-live="polite">League profiles stay in this browser and are never uploaded.</p>
+        </section>
+        <section class="model-panel">
+          <div class="side-heading"><h3>Local dataset</h3><span id="dataset-count">—</span></div>
+          <dl class="data-facts">
+            <div><dt>Baseline</dt><dd>ESPN rankings and Mike Clay 2026 half-PPR projections</dd></div>
+            <div><dt>Context</dt><dd>2026 SoS/unit grades plus labeled 2025 efficiency baselines</dd></div>
+            <div><dt>Network calls</dt><dd>Blocked by application CSP</dd></div>
+            <div><dt>Storage</dt><dd>Your browser localStorage only</dd></div>
+          </dl>
+          <div class="button-row">
+            <button class="primary-button" id="export-state" type="button">Export draft state</button>
+            <label class="secondary-button" for="import-state">Import state</label>
+            <input class="visually-hidden" id="import-state" type="file" accept="application/json,.json">
+          </div>
+        </section>
+        <section class="model-panel">
+          <div class="side-heading"><h3>Enrich player metrics</h3><span>CSV / local only</span></div>
+          <p class="panel-copy">The reviewed local model is active by default. Import a CSV to override projection, opportunity, schedule, or durability for selected players.</p>
+          <label class="file-drop" for="metric-import">
+            <strong>Choose a local CSV</strong>
+            <span>projection, opportunity, schedule, durability</span>
+          </label>
+          <input class="visually-hidden" id="metric-import" type="file" accept="text/csv,.csv">
+          <p class="import-status" id="import-status" aria-live="polite">Loading reviewed local metrics…</p>
+        </section>
+      </div>
+      <section class="source-ledger">
+        <div class="side-heading"><h3>Research ledger</h3><span>Read-only web sources</span></div>
+        <div id="source-ledger"></div>
+      </section>
+      <section class="source-ledger">
+        <div class="side-heading"><h3>Snapshot registry</h3><span>Versioned local inputs</span></div>
+        <p class="panel-copy">Snapshots identify which dated local artifacts produced a model run. Archived snapshots remain provenance checkpoints and never update themselves.</p>
+        <div id="snapshot-ledger"></div>
+      </section>
+    </section>
+  </main>
+
+  <input class="visually-hidden" id="league-import" type="file" accept="application/json,.json">
+
+  <dialog id="player-dialog">
+    <form method="dialog" class="dialog-card">
+      <button class="dialog-close" value="close" aria-label="Close player details">×</button>
+      <div id="player-dialog-content"></div>
+    </form>
+  </dialog>
+  <dialog id="custom-pick-dialog">
+    <form class="dialog-card custom-pick-card" id="custom-pick-form">
+      <button class="dialog-close" id="close-custom-pick" type="button" aria-label="Close custom pick">×</button>
+      <p class="eyebrow">Manual draft entry</p>
+      <h2>Record a custom player</h2>
+      <p class="custom-pick-copy">Use this when a late-round selection is not in the tracked player pool. It records the pick without creating a projection or model grade.</p>
+      <div class="custom-pick-context"><span>Draft slot</span><strong id="custom-pick-slot">—</strong></div>
+      <div class="custom-pick-fields">
+        <label><span>Player name</span><input id="custom-player-name" type="text" maxlength="60" required autocomplete="off" placeholder="Player name"></label>
+        <label><span>NFL team</span><input id="custom-player-team" type="text" maxlength="4" autocomplete="off" placeholder="FA"></label>
+        <label><span>Position</span><select id="custom-player-position" required><option value="" selected disabled>Select position</option><option value="QB">QB</option><option value="RB">RB</option><option value="WR">WR</option><option value="TE">TE</option><option value="K">K</option><option value="DST">DST</option></select></label>
+        <label><span>Drafted by</span><select id="custom-player-manager" required></select></label>
+      </div>
+      <p class="custom-pick-status" id="custom-pick-status" aria-live="polite"></p>
+      <div class="custom-pick-actions"><button class="secondary-button" id="cancel-custom-pick" type="button">Cancel</button><button class="primary-button" type="submit">Record pick</button></div>
+    </form>
+  </dialog>
+  <dialog id="ranking-import-dialog">
+    <form class="dialog-card custom-pick-card ranking-import-card" id="ranking-import-form">
+      <button class="dialog-close" id="close-ranking-import" type="button" aria-label="Close ranking import">Ã—</button>
+      <p class="eyebrow">Local ranking snapshot</p>
+      <h2>Paste an app draft board</h2>
+      <p class="custom-pick-copy">Paste inert text copied from Yahoo, Sleeper, or another board. Nothing is fetched or executed. Use one player per line as <strong>rank,name</strong>.</p>
+      <div class="ranking-import-fields">
+        <label><span>Comparison source</span><select id="ranking-import-source"></select></label>
+        <label><span>Ranking text</span><textarea id="ranking-import-text" rows="12" spellcheck="false" placeholder="1,Bijan Robinson&#10;2,Jahmyr Gibbs&#10;3,Ja'Marr Chase"></textarea></label>
+      </div>
+      <p class="custom-pick-status" id="ranking-import-status" aria-live="polite"></p>
+      <div class="custom-pick-actions"><button class="text-button" id="clear-ranking-import" type="button">Clear saved board</button><button class="secondary-button" id="cancel-ranking-import" type="button">Cancel</button><button class="primary-button" type="submit">Use rankings</button></div>
+    </form>
+  </dialog>
+  <div class="metric-tooltip" id="metric-tooltip" role="tooltip" hidden></div>
+
+  <script src="espn-data.js" defer></script>
+  <script src="comparison-data.js" defer></script>
+  <script src="ranking-comparison.js" defer></script>
+  <script src="data.js" defer></script>
+  <script src="context-data.js" defer></script>
+  <script src="context-engine.js" defer></script>
+  <script src="league-profile.js" defer></script>
+  <script src="draft-brain.js" defer></script>
+  <script src="model.js" defer></script>
+  <script src="strategy-engine.js" defer></script>
+  <script src="historical-public-data.js" defer></script>
+  <script src="historical-roundtable.js" defer></script>
+  <script src="historical-backtest.js" defer></script>
+  <script src="wait-calibration.js" defer></script>
+  <script src="snapshot-registry.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>
