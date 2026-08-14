@@ -9,22 +9,22 @@
     [5,1,"Jaxon Smith-Njigba","SEA","WR3",1,9,5.6,1.5,1],
     [6,1,"Amon-Ra St. Brown","DET","WR4",4,10,7.1,1.2,2],
     [7,1,"Christian McCaffrey","SF","RB3",3,22,7.5,3.4,-2],
-    [8,2,"CeeDee Lamb","DAL","WR5",7,16,9.3,2.2,3],
-    [9,2,"Jonathan Taylor","IND","RB4",3,19,9.4,3,-2],
+    [8,2,"Jonathan Taylor","IND","RB4",3,19,9.4,3,-2],
+    [9,2,"CeeDee Lamb","DAL","WR5",7,16,9.3,2.2,3],
     [10,2,"Justin Jefferson","MIN","WR6",6,30,10.3,3.4,2],
     [11,2,"James Cook III","BUF","RB5",5,23,11.3,3.2,-2],
     [12,2,"Ashton Jeanty","LV","RB6",6,30,14.7,5,-2],
     [13,2,"Drake London","ATL","WR7",9,28,15.4,4.5,4],
-    [14,2,"Saquon Barkley","PHI","RB7",8,37,17.6,5.7,0],
     [15,2,"A.J. Brown","NE","WR8",9,38,17.9,6.4,8],
-    [16,2,"Brock Bowers","LV","TE1",11,32,18.2,4,4],
-    [17,2,"Chase Brown","CIN","RB8",10,37,18.3,5.5,-2],
+    [14,2,"Chase Brown","CIN","RB7",10,37,18.3,5.5,-2],
+    [17,2,"Brock Bowers","LV","TE1",11,32,18.2,4,4],
+    [16,2,"Saquon Barkley","PHI","RB8",8,37,17.6,5.7,0],
     [18,3,"De'Von Achane","MIA","RB9",5,33,19,5.5,-5],
-    [19,3,"Nico Collins","HOU","WR9",11,35,19.3,5.1,5],
     [20,3,"Omarion Hampton","LAC","RB10",11,45,19.6,6.4,-4],
-    [21,3,"George Pickens","DAL","WR10",11,41,22.3,5.4,5],
-    [22,3,"Derrick Henry","BAL","RB11",10,40,22.7,6.4,-1],
-    [23,3,"Kenneth Walker III","KC","RB12",11,51,23,8.7,-4],
+    [19,3,"Nico Collins","HOU","WR9",11,35,19.3,5.1,5],
+    [21,3,"Derrick Henry","BAL","RB11",10,40,22.7,6.4,-1],
+    [23,3,"George Pickens","DAL","WR10",11,41,22.3,5.4,5],
+    [22,3,"Kenneth Walker III","KC","RB12",11,51,23,8.7,-4],
     [24,3,"Trey McBride","ARI","TE2",15,60,23.4,6.5,-6],
     [25,3,"Rashee Rice","KC","WR11",8,51,25.1,8.9,5],
     [26,3,"Chris Olave","NO","WR12",18,46,27.4,5.3,3],
@@ -102,7 +102,7 @@
     [98,6,"Makai Lemon","PHI","WR42",70,238,101.9,27.7,-5],
     [99,6,"Jakobi Meyers","JAC","WR43",70,146,102.4,15.2,8],
     [100,6,"Bo Nix","DEN","QB14",73,150,102.6,10.5,2],
-    [101,6,"Josh Downs","IND","WR44",69,165,102.8,17.7,19],
+    [97,6,"Josh Downs","IND","WR44",69,165,102.8,17.7,19],
     [102,6,"Travis Kelce","KC","TE9",76,156,103.2,14.4,-4],
     [103,6,"Kenny Gainwell","TB","RB36",76,147,103.3,15.2,1],
     [104,6,"Wan'Dale Robinson","TEN","WR45",61,149,103.5,16.5,12],
@@ -115,8 +115,8 @@
     [111,7,"Jayden Reed","GB","WR47",71,142,111,15.8,7],
     [112,7,"Dalton Kincaid","BUF","TE11",79,157,112.8,14.4,-11],
     [113,7,"Kyler Murray","MIN","QB17",73,206,114.4,17.5,14],
-    [114,7,"Jonathon Brooks","CAR","RB39",66,366,114.5,41.5,-18],
-    [115,7,"Jacory Croskey-Merritt","WAS","RB40",85,147,116.4,12,-5],
+    [104,7,"Jonathon Brooks","CAR","RB39",66,366,114.5,41.5,-18],
+    [110,7,"Jacory Croskey-Merritt","WAS","RB40",85,147,116.4,12,-5],
     [116,7,"Jake Ferguson","DAL","TE12",94,154,116.8,13.3,-7],
     [117,7,"Dallas Goedert","PHI","TE13",94,157,116.9,16.1,2],
     [118,7,"Jordan Mason","MIN","RB41",85,151,117.8,13.1,-3],
@@ -127,7 +127,7 @@
   const formatTopRanks = {
     standard: ["Jahmyr Gibbs","Bijan Robinson","Ja'Marr Chase","Puka Nacua","Jaxon Smith-Njigba","Amon-Ra St. Brown","Jonathan Taylor","Christian McCaffrey","CeeDee Lamb","James Cook III","Justin Jefferson","Nico Collins","Derrick Henry","Drake London","A.J. Brown","Brock Bowers","Saquon Barkley","Ashton Jeanty","George Pickens","Omarion Hampton","Trey McBride","Josh Allen","Kenneth Walker III","De'Von Achane"],
     ppr: ["Ja'Marr Chase","Puka Nacua","Bijan Robinson","Jahmyr Gibbs","Jaxon Smith-Njigba","Amon-Ra St. Brown","CeeDee Lamb","Christian McCaffrey","Justin Jefferson","Drake London","Jonathan Taylor","A.J. Brown","Nico Collins","Ashton Jeanty","George Pickens","Trey McBride","James Cook III","De'Von Achane","Chase Brown","Brock Bowers","Rashee Rice","Chris Olave","Omarion Hampton","DeVonta Smith"],
-    half: ["Bijan Robinson","Jahmyr Gibbs","Ja'Marr Chase","Puka Nacua","Jaxon Smith-Njigba","Amon-Ra St. Brown","Christian McCaffrey","CeeDee Lamb","Jonathan Taylor","Justin Jefferson","James Cook III","Ashton Jeanty","Drake London","A.J. Brown","Brock Bowers","De'Von Achane","Chase Brown","Nico Collins","Saquon Barkley","Omarion Hampton","George Pickens","Trey McBride","Derrick Henry","Kenneth Walker III"]
+    half: ["Jahmyr Gibbs","Bijan Robinson","Ja'Marr Chase","Puka Nacua","Jaxon Smith-Njigba","Amon-Ra St. Brown","Christian McCaffrey","Jonathan Taylor","CeeDee Lamb","Justin Jefferson","James Cook III","Ashton Jeanty","Drake London","Chase Brown","A.J. Brown","Saquon Barkley","Brock Bowers","De'Von Achane","Nico Collins","Omarion Hampton","Derrick Henry","Kenneth Walker III","George Pickens","Trey McBride"]
   };
 
   const playerNotes = {
@@ -154,6 +154,7 @@
   ]);
 
   const deepRookies = [
+    ["Elijah Sarratt", "BAL", "WR", 9],
     ["CJ Daniels", "LAR", "WR", 10],
     ["Malachi Fields", "NYG", "WR", 11],
     ["Chris Brazzell II", "CAR", "WR", 12],
@@ -217,7 +218,7 @@
       name: "ESPN / Mike Clay",
       verdict: "Distinct second opinion",
       tone: "neutral",
-      evidence: "Public 2026 PPR Top 300; updated Aug 2",
+      evidence: "Public 2026 PPR Top 300; updated Aug 9",
       conclusion: "Strong complete ranking baseline, but no comparable public 2025 half-PPR accuracy placement was verified in this research pass.",
       url: "https://g.espncdn.com/s/ffldraftkit/26/NFL26_CS_PPR300.pdf?adddata=2026CS_PPR300"
     },
@@ -240,16 +241,17 @@
   ];
 
   const researchLedger = [
-    {source:"FantasyPros",artifact:"2026 top-120 ECR snapshot",date:"Retrieved 2026-08-05",url:"https://www.fantasypros.com/2026/06/best-fantasy-football-picks/"},
-    {source:"ESPN",artifact:"2026 PPR Top 300 cheat sheet",date:"Updated 2026-08-02",url:"https://g.espncdn.com/s/ffldraftkit/26/NFL26_CS_PPR300.pdf?adddata=2026CS_PPR300"},
+    {source:"FantasyPros",artifact:"2026 half-PPR ECR refresh",date:"Retrieved 2026-08-14; complete current top 24",url:"https://www.fantasypros.com/nfl/cheatsheets/top-half-ppr-players.php"},
+    {source:"ESPN",artifact:"2026 PPR Top 300 cheat sheet",date:"Updated 2026-08-13; complete Top 300 transcribed",url:"https://g.espncdn.com/s/ffldraftkit/26/NFL26_CS_PPR300.pdf?adddata=2026CS_PPR300"},
     {source:"RotoBaller",artifact:"2026 rookie redraft rankings",date:"Published 2026-06-05",url:"https://www.rotoballer.com/fantasy-football-rookie-rankings-for-redraft-leagues-2026/1869301"},
     {source:"Athlon",artifact:"2026 rookie position rankings",date:"Published 2026-04-28",url:"https://athlonsports.com/fantasy/2026-fantasy-football-rookie-rankings-redraft-keeper-leagues"},
     {source:"FantasyPros",artifact:"2025 draft accuracy results",date:"2025 season",url:"https://www.fantasypros.com/nfl/accuracy/draft.php?sort=WR"},
     {source:"FantasyPros",artifact:"2023–2025 multi-year accuracy",date:"Published 2026-07",url:"https://www.fantasypros.com/nfl/accuracy/multi-year-draft.php"},
     {source:"FantasyPros",artifact:"Draft accuracy methodology",date:"Undated evergreen",url:"https://www.fantasypros.com/about/faq/football-draft-accuracy-methodology/"},
     {source:"Reception Perception",artifact:"Success rate and alignment validation",date:"Public methodology",url:"https://receptionperception.com/assessing-the-effect-of-reception-perception-success-rates-and-alignment-on-statistical-production/"},
-    {source:"FantasyPros",artifact:"Matt Harmon 2026 PPR dissent ranks",date:"Updated 2026-08-05",url:"https://www.fantasypros.com/nfl/rankings/matt-harmon-consensus-rankings.php?scoring=PPR"},
-    {source:"FantasyPros",artifact:"Yahoo, Sleeper and RTSports half-PPR ADP",date:"Retrieved 2026-08-06",url:"https://www.fantasypros.com/nfl/adp/half-point-ppr-overall.php"},
+    {source:"FantasyPros",artifact:"Matt Harmon 2026 PPR dissent ranks",date:"Verified unchanged 2026-08-10",url:"https://www.fantasypros.com/nfl/rankings/matt-harmon-consensus-rankings.php?scoring=PPR"},
+    {source:"FantasyPros",artifact:"Pat Fitzmaurice 2026 half-PPR dissent ranks",date:"Updated 2026-08-10",url:"https://www.fantasypros.com/nfl/rankings/pat-fitzmaurice-consensus-rankings.php?scoring=HALF"},
+    {source:"FantasyPros",artifact:"Yahoo, Sleeper and RTSports half-PPR ADP",date:"Retrieved 2026-08-10",url:"https://www.fantasypros.com/nfl/adp/half-point-ppr-overall.php"},
     {source:"FantasyPros",artifact:"2025 accuracy analysis and position leaders",date:"Published 2026-07",url:"https://www.fantasypros.com/2026/07/2025s-most-accurate-fantasy-football-draft-rankings/"},
     {source:"Research",artifact:"Expected points and replacement value",date:"JQAS 2020",url:"https://doi.org/10.1515/jqas-2018-0010"},
     {source:"NFL",artifact:"Next Gen Stats methodology",date:"Current reference",url:"https://operations.nfl.com/game-operations-logistics/technology/performance-tracking-data-next-gen-stats"}
@@ -301,15 +303,15 @@
   });
 
   window.DRAFT_DATA = Object.freeze({
-    asOf: "2026-08-05",
+    asOf: "2026-08-14",
     players: Object.freeze(players),
     sourceVerdicts: Object.freeze(sourceVerdicts),
     researchLedger: Object.freeze(researchLedger),
     defaultWeights: Object.freeze({
       consensus: 35,
-      projectionVor: 25,
-      opportunity: 15,
-      schedule: 8,
+      projectionVor: 28,
+      opportunity: 17,
+      schedule: 3,
       durability: 10,
       market: 7
     })

@@ -2,16 +2,16 @@
 
 ## 1. Evidence Layer
 
-The complete baseline is ESPN's August 2, 2026 PPR Top 300. A dated public FantasyPros Expert Consensus Ranking snapshot supplies cross-source agreement, analyst dispersion, and ADP value where available. Players without those secondary inputs remain ranked but show lower model coverage rather than invented values.
+The complete baseline is ESPN's August 13, 2026 PPR Top 300. A dated public FantasyPros Expert Consensus Ranking snapshot, refreshed through August 14, supplies cross-source agreement, analyst dispersion, and ADP value where available. Players without those secondary inputs remain ranked but show lower model coverage rather than invented values.
 
 ## 2. Base Score
 
 The editable model has six signals:
 
 - **Expert consensus (35%)**: format-adjusted ECR curve, analyst dispersion, and cross-source positional agreement.
-- **Projection / VOR (25%)**: Mike Clay 2026 half-PPR points minus a league-specific, flex-optimized positional replacement baseline.
-- **Opportunity (15%)**: position-specific projected volume from pass attempts, rush attempts, carries, targets, and team shares.
-- **Schedule (8%)**: DraftCall position SoS blended with ESPN projected defensive units and modest home/travel adjustments; Weeks 15–17 are scored separately.
+- **Projection / VOR (28%)**: Mike Clay 2026 half-PPR points minus a league-specific, flex-optimized positional replacement baseline.
+- **Opportunity (17%)**: position-specific projected volume from pass attempts, rush attempts, carries, targets, and team shares. The next data revision should prefer expected/weighted opportunity over raw touches when frozen field-position and target-depth inputs are available.
+- **Schedule (3%)**: DraftCall position SoS blended with ESPN projected defensive units and modest home/travel adjustments; Weeks 15–17 are scored separately. This is now a tiebreaker because preseason positional points allowed have weak year-to-year stability.
 - **Durability (10%)**: five-year/recent availability, age-position curve, projected games, and workload stress. Young samples regress toward a neutral prior and rookies receive low confidence.
 - **Market value (7%)**: ECR versus ADP, capped to prevent market price from dominating player quality.
 
@@ -79,6 +79,19 @@ The Accuracy Lab reports rank MAE/correlation, projection point error, active po
 `historical-backtest.js` rejects incomplete or duplicate-season inputs and retains strict promotion gates for future multi-season public cohorts. Season-forward and wait-return calibration cards remain unavailable until enough privacy-safe dated seasons exist.
 
 `snapshot-registry.js` identifies immutable, dated local input snapshots. It records provenance only; snapshots never fetch, execute, or update remote content.
+
+## 8. Analytics Research Brain
+
+`analytics-research.js` is the metric-governance index. It records reviewed sources, research-only critics, candidate metrics, explicit guardrails, and sandbox verdicts. `research-lab.js` reproduces fixed position-rank experiments against the frozen 2021–2025 cohort without fitting on outcomes.
+
+The August 14 pass tested 210 player-seasons. A 35% projection-rank blend reduced within-position MAE from 4.886 to 4.857, a 0.6% improvement that was split across seasons. That result remains **Hold**, not a promoted live formula. Mean-rank penalties for availability and analyst disagreement failed to improve the baseline and were rejected. Availability and disagreement remain uncertainty-range inputs.
+
+Two governance critics were added outside the four-person historical ranking loop:
+
+- **Signal Governance Auditor**: blocks leakage, redundant inputs, low-coverage features, and changes that fail held-out thresholds.
+- **Rookie Translation Specialist**: tracks draft capital, draft age, early declaration, and college production, but abstains from live ranks until a frozen multi-year rookie cohort exists.
+
+The only live-weight change from this pass is conservative: schedule fell from 8% to 3%, while projection/VOR rose to 28% and opportunity rose to 17%. The weights still total 100%. No inaccessible proprietary metric was fabricated.
 
 ## CSV Import
 

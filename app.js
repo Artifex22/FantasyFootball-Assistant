@@ -7,18 +7,23 @@
   const comparisonData = window.RANKING_COMPARISON_DATA;
   const brain = window.DraftBrain;
   const strategyEngine = window.DraftStrategy;
+  const waiverEngine = window.WaiverEngine;
+  const teamEngine = window.TeamEngine;
   const historicalData = window.HISTORICAL_2025_DATA;
   const historicalMultiSeasonData = [];
   const historicalRoundtable = window.HistoricalRoundtable;
   const historicalBacktest = window.HistoricalBacktest;
   const waitCalibration = window.WaitCalibration;
   const snapshotRegistry = window.SNAPSHOT_REGISTRY;
+  const analyticsResearch = window.FANTASY_ANALYTICS_RESEARCH;
   const leagueProfiles = window.LeagueProfiles;
   const leagueProfile = window.LEAGUE_PROFILE;
+  const localWorkspace = window.LOCAL_WORKSPACE;
   const identities = window.MANAGER_IDENTITIES || { currentOwners: {} };
   const context = window.DraftContextEngine.createContext(window.DRAFT_CONTEXT_DATA, data.players);
   window.DraftContext = context;
-  const STORAGE_KEY = `draft-room-state-v3:${leagueProfile.id}`;
+  const STORAGE_KEY = `draft-room-state-v4:${localWorkspace?.id || leagueProfile.id}`;
+  const PROFILE_STORAGE_KEY = `draft-room-state-v3:${leagueProfile.id}`;
   const PRIOR_STORAGE_KEY = "draft-room-state-v2";
   const LEGACY_STORAGE_KEY = "draft-room-state-v1";
   const USER_MANAGER_ID = leagueProfile.league.userManagerId;
@@ -31,7 +36,7 @@
   if (initialUserIndex >= 0) defaultDraftOrder.splice(initialUserIndex, 1);
   defaultDraftOrder.splice(Math.min(leagueProfile.league.draftSlot - 1, defaultDraftOrder.length), 0, USER_MANAGER_ID);
   const state = {
-    settings: { scoring: leagueProfile.league.scoring, teams: leagueProfile.league.teams, draftSlot: leagueProfile.league.draftSlot, startingQbs: leagueProfile.league.startingQbs, useProjectedKeepers: leagueProfile.league.useProjectedKeepers, userKeeperId: "", userKeeperRound: 1 },
+    settings: { scoring: leagueProfile.league.scoring, teams: leagueProfile.league.teams, draftSlot: leagueProfile.league.draftSlot, syncedProfileDraftSlot: null, startingQbs: leagueProfile.league.startingQbs, useProjectedKeepers: leagueProfile.league.useProjectedKeepers, userKeeperId: "", userKeeperRound: 1 },
     weights: { ...data.defaultWeights },
     metricsById: { ...context.metricsById },
     draftLog: [],
@@ -48,6 +53,12 @@
     playerLimit: PLAYER_PAGE_SIZE,
     favoritePlayerIds: [],
     customPlayers: [],
+    waiverCandidates: [],
+    waiverSettings: { week: 1, leagueFaabBudget: 100, remainingFaab: 100, rosterNeed: 50 },
+    waiverPosition: "ALL",
+    waiverSearch: "",
+    teamContext: null,
+    teamWeek: 1,
     selectedPlayerId: data.players[0].id
   };
 
@@ -60,7 +71,10 @@
   const playerScopeEntries = new Map();
   const teamScopeEntries = new Map();
   let playerSearchTimer = null;
+  let workspaceSaveTimer = null;
+  let analysisPollTimer = null;
   let accuracyRendered = false;
+  const connectorRuntime = { available: false, statuses: null, leagues: [], active: null, workspaces: [], activeWorkspace: localWorkspace?.id || null, analysis: null };
 
   const METRIC_HELP = Object.freeze({
     model: "A 0–100 draft grade combining consensus, projection value over replacement, opportunity, schedule, durability, market value, roster need, and tier urgency. Higher is better.",
@@ -98,12 +112,19 @@
     errorDecomposition: "Total point error is split into availability error from projected games minus actual games and performance error from projected versus actual points per game. MAE uses absolute misses; positive bias means the projection ran high.",
     waitCalibration: "Brier score measures probability accuracy from 0 to 1; lower is better. Calibration error compares predicted wait-return percentages with observed return rates; lower is better. Each test year is excluded from training.",
     rosterUtility: "A four-round, 12-slot cohort simulation. The model and baseline face the same league market order and roster constraints. Positive points are better, but this is a partial early-round utility test rather than a full-season lineup simulation.",
+    weeklyProjection: "Projected fantasy points for the selected week. ESPN weekly projections lead during the active scoring week; otherwise the local season projection is adjusted by the player's opponent grade.",
+    weeklyRank: "Projected rank among players at the same position who are currently rostered in this synced league. Lower is better.",
+    weeklyGrade: "A PFF-style 55–98 weekly grade derived from the player's projected rank within this league's rostered position pool. It is a relative comparison, not a scouting grade.",
+    positionRoomGrade: "A PFF-style 55–98 unit grade relative to every team in this league. Starter projections lead, with a smaller credit for the best bench depth.",
+    matchupEdge: "The projected scoring difference between corresponding fantasy lineup slots. The higher weekly projection is highlighted; it is not a guarantee of the matchup result.",
     promotionGate: "A rule that must pass before historical critic weights can influence the live model. Every gate must pass; one small-season improvement is not enough.",
     projectedHistoricalPoints: "Mike Clay's September 4 preseason PPR projection converted to half PPR by subtracting half of projected receptions. It is a frozen input, not a hindsight estimate.",
     projectedHistoricalVor: "Projected half-PPR points above a 12-team replacement baseline from the same projection guide: QB12, RB30, WR36, or TE12. Higher is more valuable.",
     uncertaintyRange: "A symmetric cohort-rank interval based on preseason uncertainty and durability. The uncertainty critic can widen this range but cannot lower or raise the player's mean rank.",
     criticConfidence: "The critic's average confidence in the completeness and strength of its preseason evidence. This is not the probability that its recommendation is correct.",
     criticDiagnostic: "Directional hit rate is how often a mean-rank critic's suggested move pointed toward the eventual result. The uncertainty specialist is judged by interval coverage instead. Hindsight weights are diagnostic coefficients learned after all outcomes were visible.",
+    researchPositionMae: "Mean absolute error between the predicted and actual finish within each position. Lower is better. These sandbox results cover 210 frozen player-seasons from 2021–2025.",
+    researchDecision: "Priority means the signal is worth collecting. Conditional or Sandbox means evidence or coverage is incomplete. Context and Uncertainty limit how the signal may be used. Reject or Downgrade prevents it from receiving major live weight.",
     originalHistoricalRank: "The preseason baseline within this 18-player pilot, blending the local draft market and an independent ESPN expert rank equally. Consensus sets the starting price but does not receive a second vote.",
     firstLoopRank: "Rank after the projection/VOR, player-signal, and team-ecosystem critics reviewed the frozen record twice. The uncertainty specialist sets a range without moving the mean.",
     crossValidatedRank: "The remade rank from three-fold holdout testing. This player's outcome was excluded when its critic weights were trained. Fold ranks were percentile-normalized before combining.",
@@ -361,8 +382,8 @@
     if (tooltip) tooltip.hidden = true;
   }
 
-  function saveState() {
-    const persisted = {
+  function snapshotState() {
+    return {
       settings: state.settings,
       weights: state.weights,
       metricsById: state.metricsById,
@@ -372,32 +393,57 @@
       customPlayers: state.customPlayers,
       comparisonSource: state.comparisonSource,
       rankingOverrides: state.rankingOverrides,
+      waiverCandidates: state.waiverCandidates,
+      waiverSettings: state.waiverSettings,
+      teamContext: state.teamContext,
+      teamWeek: state.teamWeek,
       sort: state.sort,
       sortDirection: state.sortDirection,
       selectedPlayerId: state.selectedPlayerId
     };
+  }
+
+  function queueWorkspaceSave() {
+    if (!connectorRuntime.available || !localWorkspace?.id) return;
+    window.clearTimeout(workspaceSaveTimer);
+    workspaceSaveTimer = window.setTimeout(() => saveActiveWorkspace({ quiet: true }).catch((error) => setWorkspaceMessage(`Autosave failed: ${error.message}`, true)), 700);
+  }
+
+  function saveState() {
+    const persisted = snapshotState();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+    queueWorkspaceSave();
   }
 
   function loadState() {
     try {
       const legacyState = leagueProfile.imported ? localStorage.getItem(PRIOR_STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY) : null;
-      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || legacyState || "null");
-      if (!parsed || typeof parsed !== "object") return;
-      if (parsed.settings) Object.assign(state.settings, parsed.settings);
-      if (parsed.weights) Object.assign(state.weights, parsed.weights);
-      if (parsed.metricsById && typeof parsed.metricsById === "object") state.metricsById = { ...context.metricsById, ...parsed.metricsById };
-      if (Array.isArray(parsed.draftOrder) && parsed.draftOrder.length === Number(state.settings.teams)) state.draftOrder = parsed.draftOrder.slice();
-      replaceCustomPlayers(Array.isArray(parsed.customPlayers) ? parsed.customPlayers : []);
-      if (Array.isArray(parsed.draftLog)) {
-        state.draftLog = normalizeDraftLog(parsed.draftLog.filter((pick) => playerById.has(pick.playerId)));
+      const browserState = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(PROFILE_STORAGE_KEY) || legacyState;
+      const parsed = localWorkspace?.appState && typeof localWorkspace.appState === "object" ? localWorkspace.appState : JSON.parse(browserState || "null");
+      if (parsed && typeof parsed === "object") {
+        if (parsed.settings) Object.assign(state.settings, parsed.settings);
+        if (parsed.weights) Object.assign(state.weights, parsed.weights);
+        if (parsed.metricsById && typeof parsed.metricsById === "object") state.metricsById = { ...context.metricsById, ...parsed.metricsById };
+        if (Array.isArray(parsed.draftOrder) && parsed.draftOrder.length === Number(state.settings.teams)) state.draftOrder = parsed.draftOrder.slice();
+        replaceCustomPlayers(Array.isArray(parsed.customPlayers) ? parsed.customPlayers : []);
+        if (Array.isArray(parsed.draftLog)) {
+          state.draftLog = normalizeDraftLog(parsed.draftLog.filter((pick) => playerById.has(pick.playerId)));
+        }
+        if (Array.isArray(parsed.favoritePlayerIds)) state.favoritePlayerIds = parsed.favoritePlayerIds.filter((playerId) => playerById.has(playerId));
+        if (comparisonData.sources[parsed.comparisonSource]) state.comparisonSource = parsed.comparisonSource;
+        if (parsed.rankingOverrides && typeof parsed.rankingOverrides === "object") state.rankingOverrides = parsed.rankingOverrides;
+        if (Array.isArray(parsed.waiverCandidates)) state.waiverCandidates = parsed.waiverCandidates.slice(0, 500);
+        if (parsed.waiverSettings && typeof parsed.waiverSettings === "object") Object.assign(state.waiverSettings, parsed.waiverSettings);
+        if (parsed.teamContext && typeof parsed.teamContext === "object") state.teamContext = parsed.teamContext;
+        if (Number.isFinite(Number(parsed.teamWeek))) state.teamWeek = Math.max(1, Math.min(18, Number(parsed.teamWeek)));
+        if (boardSortDefaults[parsed.sort]) state.sort = parsed.sort;
+        if (parsed.sortDirection === "asc" || parsed.sortDirection === "desc") state.sortDirection = parsed.sortDirection;
+        if (playerById.has(parsed.selectedPlayerId)) state.selectedPlayerId = parsed.selectedPlayerId;
       }
-      if (Array.isArray(parsed.favoritePlayerIds)) state.favoritePlayerIds = parsed.favoritePlayerIds.filter((playerId) => playerById.has(playerId));
-      if (comparisonData.sources[parsed.comparisonSource]) state.comparisonSource = parsed.comparisonSource;
-      if (parsed.rankingOverrides && typeof parsed.rankingOverrides === "object") state.rankingOverrides = parsed.rankingOverrides;
-      if (boardSortDefaults[parsed.sort]) state.sort = parsed.sort;
-      if (parsed.sortDirection === "asc" || parsed.sortDirection === "desc") state.sortDirection = parsed.sortDirection;
-      if (playerById.has(parsed.selectedPlayerId)) state.selectedPlayerId = parsed.selectedPlayerId;
+      const bootstrapSnapshot = window.LOCAL_LEAGUE_SNAPSHOT;
+      if (bootstrapSnapshot?.teamContext && typeof bootstrapSnapshot.teamContext === "object") state.teamContext = bootstrapSnapshot.teamContext;
+      if (Array.isArray(bootstrapSnapshot?.waiverCandidates)) state.waiverCandidates = bootstrapSnapshot.waiverCandidates.slice(0, 500);
+      if (state.teamContext?.currentWeek && !parsed?.teamWeek) state.teamWeek = Math.max(1, Math.min(18, Number(state.teamContext.currentWeek) || 1));
     } catch (error) {
       localStorage.removeItem(STORAGE_KEY);
     }
@@ -472,15 +518,41 @@
   }
 
   function activeKeepers() {
-    const opponentKeepers = state.settings.useProjectedKeepers ? brain.projectedKeepers.map((keeper) => {
+    const keepers = state.settings.useProjectedKeepers ? brain.projectedKeepers.map((keeper) => {
       const player = data.players.find((candidate) => candidate.name === keeper.player);
       return player ? { ...keeper, playerId: player.id } : null;
     }).filter(Boolean) : [];
     const userPlayer = playerById.get(state.settings.userKeeperId);
-    if (userPlayer && brain.keeperEligible(USER_MANAGER_ID, userPlayer.name)) {
-      opponentKeepers.push({ managerId: USER_MANAGER_ID, player: userPlayer.name, playerId: userPlayer.id, round: Number(state.settings.userKeeperRound) || 1 });
+    const confirmedUserKeeper = keepers.find((keeper) => keeper.managerId === USER_MANAGER_ID);
+    if (!confirmedUserKeeper && userPlayer && brain.keeperEligible(USER_MANAGER_ID, userPlayer.name)) {
+      keepers.push({ managerId: USER_MANAGER_ID, player: userPlayer.name, playerId: userPlayer.id, round: Number(state.settings.userKeeperRound) || 1 });
     }
-    return opponentKeepers;
+    const byManager = new Map();
+    keepers.forEach((keeper) => { if (!byManager.has(keeper.managerId)) byManager.set(keeper.managerId, keeper); });
+    return [...byManager.values()];
+  }
+
+  function reconcileConfirmedUserKeeper() {
+    if (!state.settings.useProjectedKeepers) return false;
+    const keeper = brain.projectedKeepers.find((entry) => entry.managerId === USER_MANAGER_ID);
+    const player = keeper ? data.players.find((candidate) => candidate.name === keeper.player) : null;
+    if (!keeper || !player) return false;
+    const changed = state.settings.userKeeperId !== player.id || Number(state.settings.userKeeperRound) !== Number(keeper.round);
+    state.settings.userKeeperId = player.id;
+    state.settings.userKeeperRound = keeper.round;
+    return changed;
+  }
+
+  function reconcileSyncedDraftSlot() {
+    if (!leagueProfile.provider) return false;
+    const profileSlot = Number(leagueProfile.league.draftSlot) || 1;
+    if (Number(state.settings.syncedProfileDraftSlot) === profileSlot) return false;
+    state.settings.syncedProfileDraftSlot = profileSlot;
+    if (!state.draftLog.length) {
+      state.settings.draftSlot = profileSlot;
+      syncUserDraftSlot();
+    }
+    return true;
   }
 
   function keeperOverallSet() {
@@ -558,7 +630,8 @@
       weights: state.weights,
       metricsById: state.metricsById,
       draftedIds: [],
-      roster: []
+      roster: [],
+      includeDraftAdjustments: false
     });
   }
 
@@ -873,13 +946,14 @@
     const profile = brain.profileFor(current.managerId);
     const container = byId("opponent-brain");
     container.replaceChildren();
-    const liveWeight = Math.round((0.05 + (Math.min(60, state.draftLog.length) / 60) * 0.25) * 100);
-    byId("opponent-sample").textContent = profile ? `${profile.years.length} seasons · ${liveWeight}% live` : `Baseline · ${liveWeight}% live`;
     append(container, element("h4", "opponent-name", managerName(current.managerId)), element("p", "opponent-pick", `Pick ${formatPick(overall)} · slot ${current.slot}`));
-    const positions = brain.likelyPositions(current.managerId, current.round, draftedPicksForBrain(), {
+    const prediction = brain.predictPick(current.managerId, current.round, draftedPicksForBrain(), {
       availablePlayers: latestBoardResults,
-      currentOverall: overall
+      currentOverall: overall,
+      limit: 3
     });
+    byId("opponent-sample").textContent = `${prediction.confidence.grade} confidence · ${prediction.confidence.liveWeight}% live`;
+    const positions = prediction.positions;
     const list = element("div", "opponent-position-list");
     positions.slice(0, 4).forEach((item) => {
       const row = element("div", "opponent-position-row");
@@ -893,8 +967,21 @@
       list.appendChild(row);
     });
     container.appendChild(list);
+    const candidates = element("div", "opponent-player-list");
+    prediction.players.forEach((item) => {
+      const button = element("button", "opponent-player-prediction");
+      button.type = "button";
+      const copy = element("span", "opponent-player-copy");
+      append(copy, element("strong", "", item.name), element("small", "", `${item.position} · ${item.archetypes.join(" / ")} · ${item.reasons[0]}`));
+      append(button, copy, element("b", "", `${item.probability}%`));
+      button.addEventListener("click", () => showPlayer(item.playerId));
+      candidates.appendChild(button);
+    });
+    if (prediction.players.length) append(container, element("p", "opponent-candidate-heading", `Plausible names · ${prediction.fieldProbability}% field`), candidates);
     const personality = brain.personalityFor(current.managerId);
-    const note = profile ? `${personality.label}. ${personality.details}` : personality.details;
+    const note = profile
+      ? `${personality.label}. ${personality.details} Exact-round sample ${prediction.evidence.exactRoundSample}; effective sample ${prediction.evidence.effectiveSample}. Weights: manager ${prediction.confidence.managerWeight}%, market ${prediction.confidence.marketWeight}%, live ${prediction.confidence.liveWeight}%, league ${prediction.confidence.leagueWeight}%.`
+      : personality.details;
     container.appendChild(element("p", "opponent-note", note));
   }
 
@@ -956,6 +1043,8 @@
     const keeperByOverall = new Map(activeKeepers().map((keeper) => [brain.overallForManagerRound(keeper.managerId, keeper.round, teams, state.draftOrder), keeper]));
     const pickByOverall = new Map(state.draftLog.map((pick) => [pick.overall, pick]));
     const currentOverall = nextOpenOverall();
+    const draftedPicks = draftedPicksForBrain();
+    const predictionCache = new Map();
     for (let draftRound = 1; draftRound <= DRAFT_ROUNDS; draftRound += 1) {
       fragment.appendChild(element("div", "draft-round-label", draftRound));
       state.draftOrder.forEach((managerId) => {
@@ -964,9 +1053,26 @@
         const keeper = keeperByOverall.get(overall);
         const player = pick ? playerById.get(pick.playerId) : keeper ? playerById.get(keeper.playerId) : null;
         const status = pick ? " filled" : keeper ? " keeper" : overall === currentOverall ? " current" : "";
-        const cell = element("div", `draft-grid-cell${status}${managerId === USER_MANAGER_ID ? " mine" : ""}`);
-        cell.dataset.position = player?.position || "";
-        append(cell, element("span", "", formatPick(overall)), element("strong", "", player ? player.name : "—"), element("small", "", keeper ? "Projected keeper" : player ? `${player.position} · ${managerName(pick?.managerId || managerId)}${player.isCustom ? " · Custom" : ""}` : managerName(managerId)));
+        const cell = element("div", `draft-grid-cell${status}${managerId === USER_MANAGER_ID ? " mine" : ""}${player ? "" : " forecast"}`);
+        if (player) {
+          cell.dataset.position = player.position;
+          append(cell, element("span", "", formatPick(overall)), element("strong", "", player.name), element("small", "", keeper ? "Projected keeper" : `${player.position} · ${managerName(pick?.managerId || managerId)}${player.isCustom ? " · Custom" : ""}`));
+        } else {
+          const cacheKey = `${managerId}:${draftRound}:${overall}`;
+          if (!predictionCache.has(cacheKey)) {
+            predictionCache.set(cacheKey, brain.predictPick(managerId, draftRound, draftedPicks, {
+              availablePlayers: latestBoardResults,
+              currentOverall: overall,
+              limit: 2
+            }));
+          }
+          const prediction = predictionCache.get(cacheKey);
+          const likely = prediction.positions[0];
+          const names = prediction.players.map((candidate) => candidate.name).join(" / ");
+          cell.dataset.position = likely?.position || "";
+          append(cell, element("span", "", formatPick(overall)), element("strong", "draft-cell-forecast", likely ? `${likely.position} ${likely.probability}%` : "Baseline"), element("small", "draft-cell-candidates", names || managerName(managerId)));
+          cell.title = `${managerName(managerId)} · ${prediction.confidence.grade} confidence · ${prediction.players.map((candidate) => `${candidate.name} ${candidate.probability}%`).join(", ") || "no named candidate"} · ${prediction.fieldProbability}% field`;
+        }
         fragment.appendChild(cell);
       });
     }
@@ -1178,6 +1284,19 @@
       const repeats = profile.repeats.length ? `Repeated targets: ${profile.repeats.slice(0, 2).map(([name, count]) => `${name} ${count}×`).join(", ")}` : "No repeated-player signal";
       const owner = identities.currentOwners[profile.id];
       append(card, heading, element("p", "manager-sample", `${owner ? `${owner} · ` : ""}${profile.sampleSize} picks · ${profile.years.join("–") || "no history"}`), element("p", "", `Early mix: ${tendency || "league baseline"}`), element("p", "", `Median QB R${profile.medianRound.QB || "—"} · TE R${profile.medianRound.TE || "—"}`), element("p", "manager-aliases", aliases), element("p", "manager-repeats", repeats));
+      const roundDetails = element("details", "manager-round-details");
+      roundDetails.appendChild(element("summary", "", "Round-by-round outlook"));
+      const roundStrip = element("div", "manager-round-strip");
+      for (let draftRound = 1; draftRound <= DRAFT_ROUNDS; draftRound += 1) {
+        const overall = brain.overallForManagerRound(profile.id, draftRound, Number(state.settings.teams), state.draftOrder);
+        const outlook = brain.roundProfile(profile.id, draftRound, [], { availablePlayers: data.players, currentOverall: overall });
+        const roundCell = element("div", "manager-round-cell");
+        append(roundCell, element("span", "", `R${draftRound}`), positionBadge(outlook.topPosition.position), element("strong", "", `${outlook.topPosition.probability}%`));
+        roundCell.title = `${outlook.positions.slice(0, 4).map((item) => `${item.position} ${item.probability}%`).join(" · ")} · ${outlook.confidence.grade} confidence · exact sample ${outlook.exactSample}`;
+        roundStrip.appendChild(roundCell);
+      }
+      append(roundDetails, roundStrip, element("p", "manager-round-note", "Exact-round history receives the strongest weight; adjacent rounds, current market, roster construction, live runs, and league regression remain visible in the forecast."));
+      card.appendChild(roundDetails);
       grid.appendChild(card);
     });
   }
@@ -1246,7 +1365,7 @@
     const ledger = byId("source-ledger");
     ledger.replaceChildren();
     const builtInSources = context.sources.map(([source, artifact, date, url]) => ({ source, artifact, date, url }));
-    const sources = [...data.researchLedger, ...builtInSources].filter((entry, index, entries) => entries.findIndex((candidate) => candidate.url === entry.url) === index);
+    const sources = [...data.researchLedger, ...(analyticsResearch?.sources || []), ...builtInSources].filter((entry, index, entries) => entries.findIndex((candidate) => candidate.url === entry.url) === index);
     sources.forEach((entry) => {
       const row = element("div", "ledger-row");
       const link = element("a", "", "Review ↗");
@@ -1256,6 +1375,33 @@
       append(row, element("span", "", entry.source), element("strong", "", entry.artifact), element("span", "", entry.date), link);
       ledger.appendChild(row);
     });
+    if (analyticsResearch) {
+      byId("research-brain-date").textContent = `Reviewed ${analyticsResearch.researchedAt}`;
+      byId("research-brain-summary").textContent = analyticsResearch.summary;
+      const criticGrid = byId("research-critic-grid");
+      criticGrid.replaceChildren();
+      analyticsResearch.critics.forEach((critic) => {
+        const card = element("article", "research-critic-card");
+        append(card, element("strong", "", critic.name), element("p", "", critic.role), element("span", "", critic.verdict));
+        criticGrid.appendChild(card);
+      });
+      const metricBody = byId("research-metric-body");
+      metricBody.replaceChildren();
+      analyticsResearch.metrics.forEach((metric) => {
+        const row = element("tr");
+        const decision = decorateMetric(element("td", `research-decision ${metric.decision.toLowerCase()}`, metric.decision), "researchDecision", metric.metric, metric.guardrail, true);
+        append(row, element("td", "", metric.metric), decision, element("td", "", metric.use), element("td", "", `${metric.evidence} ${metric.guardrail}`));
+        metricBody.appendChild(row);
+      });
+      const experimentGrid = byId("research-experiment-grid");
+      experimentGrid.replaceChildren();
+      analyticsResearch.experiments.forEach((experiment) => {
+        const card = element("article", `research-experiment-card ${experiment.status.toLowerCase()}`);
+        const score = decorateMetric(element("strong", "", experiment.positionMae.toFixed(3)), "researchPositionMae", experiment.name, experiment.finding, true);
+        append(card, element("span", "", experiment.status), element("h4", "", experiment.name), score, element("small", "", `${experiment.playerSeasons} player-seasons`), element("p", "", experiment.finding));
+        experimentGrid.appendChild(card);
+      });
+    }
     const snapshotLedger = byId("snapshot-ledger");
     snapshotLedger.replaceChildren();
     snapshotRegistry.snapshots.forEach((snapshot) => {
@@ -1264,6 +1410,301 @@
       append(row, element("span", "", snapshot.asOf), element("strong", "", snapshot.label), element("span", "", `${status} · ${snapshot.files.length} files`), element("span", "", snapshot.immutable ? "Immutable" : "Mutable"));
       snapshotLedger.appendChild(row);
     });
+  }
+
+  async function localApi(path, options = {}) {
+    const response = await fetch(path, { credentials: "same-origin", ...options });
+    const contentType = response.headers.get("content-type") || "";
+    const payload = contentType.includes("application/json") ? await response.json() : null;
+    if (!response.ok) throw new Error(payload?.error || `Local server request failed (${response.status}).`);
+    return payload;
+  }
+
+  function setConnectorMessage(message, error = false) {
+    const target = byId("connector-action-status");
+    if (!target) return;
+    target.textContent = message;
+    target.classList.toggle("error", error);
+  }
+
+  function connectorKey(provider, id) {
+    return `${provider}:${id}`;
+  }
+
+  function workspaceOption(id) {
+    return `workspace:${id}`;
+  }
+
+  function providerOption(provider, id) {
+    return `provider:${provider}:${id}`;
+  }
+
+  function parseLeagueSelection(value) {
+    const source = String(value || "");
+    if (source.startsWith("workspace:")) return { type: "workspace", id: source.slice(10) };
+    if (source.startsWith("provider:")) {
+      const separator = source.indexOf(":", 9);
+      return { type: "provider", provider: source.slice(9, separator), id: source.slice(separator + 1) };
+    }
+    return { type: "local" };
+  }
+
+  function activeWorkspaceSummary() {
+    return connectorRuntime.workspaces.find((workspace) => workspace.id === connectorRuntime.activeWorkspace) || null;
+  }
+
+  function selectedProvider() {
+    const selection = parseLeagueSelection(byId("synced-league-selector").value);
+    if (selection.type === "provider") return selection;
+    if (selection.type === "workspace") {
+      const workspace = connectorRuntime.workspaces.find((candidate) => candidate.id === selection.id);
+      if (workspace?.provider?.id && workspace.provider.leagueId) return { type: "provider", provider: workspace.provider.id, id: workspace.provider.leagueId };
+    }
+    return null;
+  }
+
+  function renderConnectorControls() {
+    const selector = byId("synced-league-selector");
+    const fallback = connectorRuntime.activeWorkspace ? workspaceOption(connectorRuntime.activeWorkspace) : "local";
+    const selected = selector.value || fallback;
+    selector.replaceChildren();
+    if (connectorRuntime.workspaces.length) {
+      connectorRuntime.workspaces.forEach((workspace) => {
+        const option = element("option", "", `${workspace.id === connectorRuntime.activeWorkspace ? "Current: " : ""}${workspace.name}${workspace.provider?.id ? ` · ${workspace.provider.id.toUpperCase()}` : ""}`);
+        option.value = workspaceOption(workspace.id);
+        selector.appendChild(option);
+      });
+    } else {
+      const localOption = element("option", "", leagueProfile.imported ? `Current: ${leagueProfile.league.name}` : "Local profile");
+      localOption.value = "local";
+      selector.appendChild(localOption);
+    }
+    const workspaceProviders = new Set(connectorRuntime.workspaces.filter((workspace) => workspace.provider?.id && workspace.provider?.leagueId).map((workspace) => connectorKey(workspace.provider.id, workspace.provider.leagueId)));
+    connectorRuntime.leagues.forEach((league) => {
+      if (workspaceProviders.has(connectorKey(league.provider, league.id))) return;
+      const option = element("option", "", `${String(league.provider).toUpperCase()} · ${league.name}${league.season ? ` (${league.season})` : ""}`);
+      option.value = providerOption(league.provider, league.id);
+      selector.appendChild(option);
+    });
+    selector.value = [...selector.options].some((option) => option.value === selected) ? selected : fallback;
+
+    const statusLabel = byId("connector-status-label");
+    const controls = document.querySelectorAll("#view-data .connector-panel button, #view-data .connector-panel input, #view-data .connector-panel label.secondary-button");
+    if (!connectorRuntime.available) {
+      byId("connector-mode").textContent = "Static mode";
+      statusLabel.textContent = "Self-hosted server required";
+      controls.forEach((control) => { control.disabled = true; control.classList.add("disabled"); });
+      byId("sync-active-league").disabled = true;
+      selector.disabled = true;
+      const message = byId("connector-action-status");
+      message.replaceChildren(document.createTextNode("This is the static GitHub copy, which cannot sync ESPN or Yahoo. "));
+      const localLink = element("a", "local-server-link", "Open the local self-hosted app");
+      localLink.href = "http://localhost:4173/";
+      message.appendChild(localLink);
+      renderWorkspaceControls();
+      renderAnalysisControls();
+      return;
+    }
+
+    controls.forEach((control) => { control.disabled = false; control.classList.remove("disabled"); });
+    selector.disabled = false;
+    byId("sync-active-league").disabled = !selectedProvider();
+    byId("connector-mode").textContent = "Self-hosted";
+    statusLabel.textContent = `${connectorRuntime.workspaces.length} saved profile${connectorRuntime.workspaces.length === 1 ? "" : "s"}`;
+    const espn = connectorRuntime.statuses?.espn || {};
+    const yahoo = connectorRuntime.statuses?.yahoo || {};
+    byId("espn-connection-state").textContent = espn.connected ? `Connected · ${espn.leagueCount || 0} found` : (espn.browserRunning ? "Login window open" : "Not connected");
+    byId("yahoo-connection-state").textContent = yahoo.connected ? "Connected" : (yahoo.configured ? "Ready to connect" : "Not configured");
+    if (yahoo.redirectUri) byId("yahoo-redirect-uri").value = yahoo.redirectUri;
+    renderWorkspaceControls();
+    renderAnalysisControls();
+  }
+
+  async function refreshConnectors({ quiet = false } = {}) {
+    try {
+      await localApi("/api/system/status");
+      connectorRuntime.available = true;
+      const [statuses, leagues, workspaces, analysis] = await Promise.all([localApi("/api/connectors/status"), localApi("/api/leagues"), localApi("/api/workspaces"), localApi("/api/analysis/rankings")]);
+      connectorRuntime.statuses = statuses;
+      connectorRuntime.leagues = Array.isArray(leagues.leagues) ? leagues.leagues : [];
+      connectorRuntime.active = leagues.active || null;
+      connectorRuntime.workspaces = Array.isArray(workspaces.workspaces) ? workspaces.workspaces : [];
+      connectorRuntime.activeWorkspace = workspaces.active || null;
+      connectorRuntime.analysis = analysis;
+      renderConnectorControls();
+      if (!localWorkspace?.appState && localWorkspace?.id === connectorRuntime.activeWorkspace) queueWorkspaceSave();
+      if (!quiet) setConnectorMessage(`Loaded ${connectorRuntime.workspaces.length} saved league profile${connectorRuntime.workspaces.length === 1 ? "" : "s"}.`);
+    } catch (error) {
+      connectorRuntime.available = false;
+      connectorRuntime.statuses = null;
+      connectorRuntime.leagues = [];
+      connectorRuntime.workspaces = [];
+      connectorRuntime.analysis = null;
+      renderConnectorControls();
+    }
+  }
+
+  function persistSyncedLeague(snapshot) {
+    if (!snapshot?.profile) throw new Error("The connector returned no league profile.");
+    const profile = leagueProfiles.normalizeProfile({ ...snapshot.profile, imported: true });
+    localStorage.setItem(leagueProfiles.STORAGE_KEY, JSON.stringify(profile));
+    const stateKey = `draft-room-state-v3:${profile.id}`;
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(stateKey) || "{}") || {}; } catch (error) { saved = {}; }
+    saved.waiverCandidates = Array.isArray(snapshot.waiverCandidates) ? snapshot.waiverCandidates.slice(0, 500) : [];
+    saved.teamContext = snapshot.teamContext && typeof snapshot.teamContext === "object" ? snapshot.teamContext : null;
+    saved.teamWeek = Number(snapshot.teamContext?.currentWeek) || saved.teamWeek || 1;
+    localStorage.setItem(stateKey, JSON.stringify(saved));
+    return profile;
+  }
+
+  async function syncSelectedLeague({ activate = true } = {}) {
+    const target = selectedProvider();
+    if (!target) {
+      setConnectorMessage("Choose an ESPN or Yahoo league first.", true);
+      return;
+    }
+    const { provider, id } = target;
+    setConnectorMessage(`Syncing ${provider.toUpperCase()} league…`);
+    const snapshot = await localApi(`/api/leagues/${encodeURIComponent(provider)}/${encodeURIComponent(id)}/sync`, { method: "POST" });
+    if (activate) await localApi(`/api/leagues/${encodeURIComponent(provider)}/${encodeURIComponent(id)}/activate`, { method: "POST" });
+    const profile = persistSyncedLeague(snapshot);
+    setConnectorMessage(`Synced ${profile.league.name}. Reloading its local workspace…`);
+    window.setTimeout(() => window.location.reload(), 250);
+  }
+
+  async function activateSelectedLeague() {
+    const selected = byId("synced-league-selector").value;
+    const selection = parseLeagueSelection(selected);
+    byId("sync-active-league").disabled = !selectedProvider() || !connectorRuntime.available;
+    try {
+      if (selection.type === "workspace") {
+        if (selection.id === connectorRuntime.activeWorkspace) return;
+        await saveActiveWorkspace({ quiet: true });
+        await localApi(`/api/workspaces/${encodeURIComponent(selection.id)}/activate`, { method: "POST" });
+        window.location.reload();
+        return;
+      }
+      if (selection.type !== "provider") return;
+      const { provider, id } = selection;
+      let snapshot;
+      try { snapshot = await localApi(`/api/leagues/${encodeURIComponent(provider)}/${encodeURIComponent(id)}`); }
+      catch (error) { snapshot = await localApi(`/api/leagues/${encodeURIComponent(provider)}/${encodeURIComponent(id)}/sync`, { method: "POST" }); }
+      await localApi(`/api/leagues/${encodeURIComponent(provider)}/${encodeURIComponent(id)}/activate`, { method: "POST" });
+      persistSyncedLeague(snapshot);
+      window.location.reload();
+    } catch (error) {
+      setConnectorMessage(error.message, true);
+    }
+  }
+
+  async function connectorAction(action, successMessage) {
+    try {
+      setConnectorMessage("Working…");
+      await action();
+      await refreshConnectors({ quiet: true });
+      setConnectorMessage(successMessage);
+    } catch (error) {
+      setConnectorMessage(error.message, true);
+    }
+  }
+
+  function setWorkspaceMessage(message, error = false) {
+    const target = byId("workspace-action-status");
+    if (!target) return;
+    target.textContent = message;
+    target.classList.toggle("error", error);
+  }
+
+  function renderWorkspaceControls() {
+    const workspace = activeWorkspaceSummary();
+    if (!byId("workspace-name")) return;
+    byId("workspace-name").value = workspace?.name || leagueProfile.league.name;
+    byId("workspace-profile-status").textContent = workspace ? `${workspace.managers} managers · ${workspace.seasons} seasons` : "Browser only";
+    byId("workspace-summary").textContent = workspace
+      ? `${workspace.keepers} keepers · ${workspace.rosters} rosters · ${workspace.waivers} waiver candidates · ${workspace.matchups} matchups · ${workspace.historicalPicks} historical picks.`
+      : "Start the self-hosted server to save complete, isolated league workspaces.";
+    ["save-workspace", "duplicate-workspace", "export-workspace", "delete-workspace"].forEach((id) => { byId(id).disabled = !workspace || !connectorRuntime.available; });
+  }
+
+  async function saveActiveWorkspace({ quiet = false } = {}) {
+    const workspaceId = connectorRuntime.activeWorkspace || localWorkspace?.id;
+    if (!connectorRuntime.available || !workspaceId) return null;
+    window.clearTimeout(workspaceSaveTimer);
+    const name = byId("workspace-name")?.value?.trim() || activeWorkspaceSummary()?.name || leagueProfile.league.name;
+    const workspace = await localApi(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, profile: leagueProfile, appState: snapshotState() })
+    });
+    const index = connectorRuntime.workspaces.findIndex((candidate) => candidate.id === workspace.id);
+    if (index >= 0) connectorRuntime.workspaces[index] = { ...connectorRuntime.workspaces[index], id: workspace.id, name: workspace.name, updatedAt: workspace.updatedAt };
+    if (!quiet) setWorkspaceMessage(`Saved ${workspace.name} at ${new Date(workspace.updatedAt).toLocaleTimeString()}.`);
+    return workspace;
+  }
+
+  async function duplicateActiveWorkspace() {
+    const profile = { ...leagueProfile };
+    delete profile.provider;
+    const name = `${byId("workspace-name").value.trim() || leagueProfile.league.name} copy`;
+    await saveActiveWorkspace({ quiet: true });
+    const workspace = await localApi("/api/workspaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, profile, appState: snapshotState(), activate: true })
+    });
+    setWorkspaceMessage(`Created ${workspace.name}. Reloading…`);
+    window.setTimeout(() => window.location.reload(), 200);
+  }
+
+  async function exportActiveWorkspace() {
+    const workspaceId = connectorRuntime.activeWorkspace || localWorkspace?.id;
+    if (!workspaceId) return;
+    const workspace = await localApi(`/api/workspaces/${encodeURIComponent(workspaceId)}`);
+    downloadJson(`${workspace.id}-workspace.json`, { ...workspace, exportedAt: new Date().toISOString() });
+    setWorkspaceMessage(`Exported ${workspace.name} with its saved league state.`);
+  }
+
+  async function deleteActiveWorkspace() {
+    const workspace = activeWorkspaceSummary();
+    if (!workspace || !window.confirm(`Delete the local workspace “${workspace.name}”? This does not delete the ESPN or Yahoo league.`)) return;
+    await localApi(`/api/workspaces/${encodeURIComponent(workspace.id)}`, { method: "DELETE" });
+    window.location.reload();
+  }
+
+  function renderAnalysisControls() {
+    if (!byId("refresh-rankings-codex")) return;
+    const analysis = connectorRuntime.analysis;
+    const button = byId("refresh-rankings-codex");
+    button.disabled = !connectorRuntime.available || !analysis?.available || analysis.running;
+    byId("codex-readiness").textContent = !connectorRuntime.available ? "Self-hosted server required" : analysis?.available ? analysis.version || "Codex CLI ready" : "CLI unavailable";
+    const job = analysis?.active || analysis?.latest;
+    byId("codex-analysis-status").textContent = job
+      ? `${job.status.toUpperCase()} · ${job.workspaceName} · started ${new Date(job.startedAt).toLocaleString()}`
+      : analysis?.message || "No rankings refresh has been started from this site.";
+    byId("codex-analysis-summary").textContent = job?.summary || job?.error || "A refresh starts a separate sandboxed local Codex job; it does not send a message into this current task.";
+    window.clearTimeout(analysisPollTimer);
+    if (analysis?.running) analysisPollTimer = window.setTimeout(refreshAnalysisStatus, 2_500);
+  }
+
+  async function refreshAnalysisStatus() {
+    if (!connectorRuntime.available) return;
+    try { connectorRuntime.analysis = await localApi("/api/analysis/rankings"); } catch (error) { connectorRuntime.analysis = null; }
+    renderAnalysisControls();
+  }
+
+  async function startCodexAnalysis() {
+    if (!window.confirm("Start a separate local Codex job to research current rankings, run the critic/backtest loop, and update approved ranking files?")) return;
+    try {
+      connectorRuntime.analysis = { ...(connectorRuntime.analysis || {}), running: true };
+      renderAnalysisControls();
+      await saveActiveWorkspace({ quiet: true });
+      await localApi("/api/analysis/rankings", { method: "POST" });
+      await refreshAnalysisStatus();
+    } catch (error) {
+      setWorkspaceMessage(error.message, true);
+      await refreshAnalysisStatus();
+    }
   }
 
   function rankingSignal(value) {
@@ -1602,6 +2043,293 @@
     byId("player-dialog").showModal();
   }
 
+  function waiverContext() {
+    return {
+      week: Number(state.waiverSettings.week) || 1,
+      leagueFaabBudget: Math.max(0, Number(state.waiverSettings.leagueFaabBudget) || 0),
+      remainingFaab: Math.max(0, Number(state.waiverSettings.remainingFaab) || 0),
+      rosterNeed: Math.max(0, Math.min(100, Number(state.waiverSettings.rosterNeed) || 0))
+    };
+  }
+
+  function applyWaiverCsv(source) {
+    const parsed = waiverEngine.parseCsv(source);
+    if (!parsed.candidates.length) {
+      byId("waiver-import-status").textContent = parsed.errors[0] || "No valid waiver candidates were found.";
+      return false;
+    }
+    state.waiverCandidates = parsed.candidates.slice(0, 500);
+    saveState();
+    const warning = parsed.errors.length ? ` ${parsed.errors.length} row${parsed.errors.length === 1 ? "" : "s"} skipped.` : "";
+    byId("waiver-import-status").textContent = `${state.waiverCandidates.length} candidates loaded.${warning}`;
+    renderWaivers();
+    return true;
+  }
+
+  function handleWaiverImport(file) {
+    if (file.size > 2_000_000) {
+      byId("waiver-import-status").textContent = "Waiver CSV rejected: file exceeds the 2 MB safety limit.";
+      return;
+    }
+    const reader = new FileReader();
+    reader.addEventListener("load", () => applyWaiverCsv(String(reader.result)));
+    reader.readAsText(file);
+  }
+
+  function teamInitials(name) {
+    return String(name || "Team").split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+  }
+
+  function weeklyPoints(player) {
+    return Number.isFinite(player?.projectedPoints) ? player.projectedPoints.toFixed(1) : "—";
+  }
+
+  function renderFantasyTeamCard(target, team, projection, edge, isMine) {
+    target.replaceChildren();
+    const identity = element("div", "fantasy-team-identity");
+    append(identity, element("span", "fantasy-team-avatar", teamInitials(team?.name)), element("div", "", ""));
+    append(identity.lastChild, element("small", "", isMine ? "Your team" : "Opponent"), element("strong", "", team?.name || "No opponent"), element("span", "", team ? `${team.wins || 0}-${team.losses || 0} · ${team.pointsFor ? `${Number(team.pointsFor).toFixed(1)} PF` : "Preseason"}` : "No scheduled matchup"));
+    const score = element("div", "fantasy-team-projection");
+    append(score, element("span", "", "Projected"), element("strong", "", team ? projection.toFixed(1) : "—"), element("small", edge === null ? "Awaiting matchup" : edge === 0 ? "Even projection" : `${edge > 0 ? "+" : ""}${edge.toFixed(1)} edge`));
+    append(target, identity, score);
+    target.classList.toggle("favored", Number(edge) > 0);
+  }
+
+  function comparisonPlayerCard(player, edge, side) {
+    const card = element("article", `comparison-player ${edge === side ? "edge" : ""}${player ? "" : " empty"}`);
+    if (!player) {
+      append(card, element("span", "comparison-empty", "No starter"));
+      return card;
+    }
+    const nameButton = element("button", "comparison-player-name", player.name);
+    nameButton.type = "button";
+    nameButton.disabled = !player.trackedId;
+    if (player.trackedId) nameButton.addEventListener("click", () => showPlayer(player.trackedId));
+    const meta = element("div", "comparison-player-meta");
+    append(meta, positionBadge(player.position), element("span", "", `${player.nflTeam || "NFL"} · ${player.opponent}`));
+    const projection = decorateMetric(element("strong", "comparison-projection", weeklyPoints(player)), "weeklyProjection", player.projectionSource, `${player.matchupDifficulty} matchup`, true);
+    const rank = decorateMetric(element("small", "", player.positionRank ? `${player.position}${player.positionRank} · ${player.letter}` : "No weekly rank"), "weeklyRank", player.positionRank ? `#${player.positionRank} among rostered ${player.position}s` : "Projection unavailable", "Rank is scoped to this synced league.");
+    append(card, nameButton, meta, projection, rank);
+    return card;
+  }
+
+  function renderTeamComparisons(dashboard) {
+    const list = byId("team-slot-comparisons");
+    list.replaceChildren();
+    if (!dashboard.opponentTeam || !dashboard.comparisons.length) {
+      const empty = element("div", "team-inline-empty", "No fantasy opponent is scheduled for this week.");
+      list.appendChild(empty);
+      return;
+    }
+    dashboard.comparisons.forEach((comparison) => {
+      const row = element("div", "slot-comparison-row");
+      const slot = element("div", "comparison-slot");
+      append(slot, element("strong", "", comparison.label), decorateMetric(element("small", "", comparison.delta === null ? "No edge" : `${comparison.delta.toFixed(1)} pts`), "matchupEdge", `${comparison.label} comparison`, comparison.edge === "mine" ? "Your starter projects higher." : comparison.edge === "theirs" ? "Opponent projects higher." : "Projection is even."));
+      append(row, comparisonPlayerCard(comparison.mine, comparison.edge, "mine"), slot, comparisonPlayerCard(comparison.theirs, comparison.edge, "theirs"));
+      list.appendChild(row);
+    });
+  }
+
+  function renderPositionGrades(dashboard) {
+    const grid = byId("team-position-grades");
+    grid.replaceChildren();
+    dashboard.positionGrades.forEach((grade) => {
+      const card = decorateMetric(element("article", `team-grade-card grade-${grade.letter[0].toLowerCase()}`), "positionRoomGrade", `#${grade.rank}/${grade.total} in this league`, `${grade.position} room uses starter projection plus 20% of the best bench option.`, true);
+      append(card, element("span", "", grade.position), element("strong", "", grade.letter), element("b", "", grade.score), element("small", "", `#${grade.rank} of ${grade.total}`));
+      grid.appendChild(card);
+    });
+  }
+
+  function renderWeeklyRoster(dashboard) {
+    const list = byId("team-roster-list");
+    list.replaceChildren();
+    const players = dashboard.myRoster.players.slice().sort((left, right) => Number(right.starter) - Number(left.starter) || left.lineupSlotId - right.lineupSlotId || (right.projectedPoints ?? -1) - (left.projectedPoints ?? -1));
+    let benchStarted = false;
+    players.forEach((player) => {
+      if (!player.starter && !benchStarted) {
+        benchStarted = true;
+        list.appendChild(element("div", "roster-section-label", "Bench"));
+      }
+      const row = element("article", `weekly-roster-row${player.injured ? " injured" : ""}`);
+      const slot = element("div", "weekly-slot", player.lineupSlot);
+      const identity = element("div", "weekly-player-identity");
+      const nameButton = element("button", "weekly-player-name", player.name);
+      nameButton.type = "button";
+      nameButton.disabled = !player.trackedId;
+      if (player.trackedId) nameButton.addEventListener("click", () => showPlayer(player.trackedId));
+      const status = player.injuryStatus && !["ACTIVE", "NORMAL"].includes(String(player.injuryStatus).toUpperCase()) ? ` · ${player.injuryStatus}` : "";
+      append(identity, nameButton, element("small", "", `${player.position} · ${player.nflTeam || "NFL"}${status}`));
+      const matchup = element("div", `weekly-matchup ${String(player.matchupDifficulty).toLowerCase()}`);
+      append(matchup, element("strong", "", player.opponent), element("small", "", player.opponentRank ? `#${player.opponentRank} vs ${player.position}` : player.matchupDifficulty));
+      const grade = decorateMetric(element("div", "weekly-grade", player.letter), "weeklyGrade", player.grade ? `${player.grade}/100 · ${player.position}${player.positionRank}` : "No grade", "Relative to rostered players at this position.", true);
+      const rank = decorateMetric(element("div", "weekly-rank", player.positionRank ? `${player.position}${player.positionRank}` : "—"), "weeklyRank", player.positionRank ? `#${player.positionRank} among synced ${player.position}s` : "No rank", player.projectionSource, true);
+      const projection = decorateMetric(element("div", "weekly-points", weeklyPoints(player)), "weeklyProjection", player.projectionSource, `${player.matchupDifficulty} matchup`, true);
+      append(row, slot, identity, matchup, grade, rank, projection);
+      list.appendChild(row);
+    });
+    byId("team-roster-projection").textContent = `${dashboard.myProjection.toFixed(1)} projected`;
+  }
+
+  function renderLineupAdvice(dashboard) {
+    const alerts = byId("team-lineup-alerts");
+    alerts.replaceChildren();
+    if (!dashboard.alerts.length) {
+      const clean = element("article", "lineup-alert positive");
+      append(clean, element("strong", "", "Lineup checks clean"), element("p", "", "No bench player currently projects at least 1.5 points above a compatible starter, and no starter has an active injury flag."));
+      alerts.appendChild(clean);
+    } else {
+      dashboard.alerts.forEach((alert) => {
+        const card = element("article", `lineup-alert ${alert.type === "injury" ? "warning" : "swap"}`);
+        if (alert.type === "swap") append(card, element("strong", "", `Consider ${alert.candidate.name}`), element("p", "", `${alert.candidate.name} projects ${alert.delta.toFixed(1)} points above ${alert.replacement.name}. Verify late news before changing the lineup in ESPN.`));
+        else append(card, element("strong", "", `Check ${alert.player.name}`), element("p", "", `${alert.player.injuryStatus} is attached to a current starter. Review practice participation and inactive news.`));
+        alerts.appendChild(card);
+      });
+    }
+    const note = byId("team-weekly-note");
+    note.replaceChildren();
+    const edgeText = dashboard.opponentTeam ? `The current projection is ${Math.abs(dashboard.projectedEdge).toFixed(1)} points ${dashboard.projectedEdge >= 0 ? "in your favor" : "against you"}.` : "No head-to-head opponent is scheduled for this week.";
+    append(note, element("span", "", "Weekly read"), element("strong", "", `${dashboard.strongest.position} is your strongest room`), element("p", "", `${edgeText} Your ${dashboard.strongest.position} unit ranks #${dashboard.strongest.rank}, while ${dashboard.weakest.position} is the shallowest at #${dashboard.weakest.rank}. Weekly grades use ${dashboard.coverage.myRoster}/${dashboard.coverage.myRosterTotal} available player projections.`));
+  }
+
+  function populateTeamWeeks() {
+    const selector = byId("team-week");
+    const maximum = Math.max(17, Number(state.teamContext?.finalScoringPeriod) || 17);
+    if (selector.options.length === maximum) return;
+    selector.replaceChildren();
+    for (let week = 1; week <= maximum; week += 1) {
+      const option = element("option", "", `Week ${week}`);
+      option.value = String(week);
+      selector.appendChild(option);
+    }
+  }
+
+  function renderTeam() {
+    populateTeamWeeks();
+    const hasRoster = Boolean(state.teamContext?.rosters?.some((roster) => String(roster.teamId) === String(state.teamContext.userTeamId) && roster.players?.length));
+    byId("team-empty").hidden = hasRoster;
+    byId("team-dashboard").hidden = !hasRoster;
+    byId("team-week").disabled = !hasRoster;
+    byId("team-week").value = String(state.teamWeek || state.teamContext?.currentWeek || 1);
+    if (!hasRoster) return;
+    const dashboard = teamEngine.createDashboard(state.teamContext, state.teamWeek, data.players, context);
+    if (!dashboard) return;
+    byId("team-hero-copy").textContent = `${dashboard.myTeam.name} · synced ${new Date(dashboard.syncedAt).toLocaleString()} · ESPN weekly projections lead for Week ${dashboard.currentWeek}.`;
+    byId("team-matchup-week").textContent = `Week ${dashboard.week}`;
+    byId("team-matchup-status").textContent = dashboard.week === dashboard.currentWeek ? "Current ESPN matchup" : dashboard.week < dashboard.currentWeek ? "Completed-week review" : "Forward model view";
+    renderFantasyTeamCard(byId("my-team-card"), dashboard.myTeam, dashboard.myProjection, dashboard.opponentTeam ? dashboard.projectedEdge : null, true);
+    renderFantasyTeamCard(byId("opponent-team-card"), dashboard.opponentTeam, dashboard.opponentProjection, dashboard.opponentTeam ? -dashboard.projectedEdge : null, false);
+    renderPositionGrades(dashboard);
+    renderTeamComparisons(dashboard);
+    renderWeeklyRoster(dashboard);
+    renderLineupAdvice(dashboard);
+  }
+
+  function renderWaivers() {
+    const settings = waiverContext();
+    byId("waiver-week").value = String(settings.week);
+    byId("waiver-budget").value = String(settings.leagueFaabBudget);
+    byId("waiver-remaining").value = String(settings.remainingFaab);
+    byId("waiver-roster-need").value = String(settings.rosterNeed);
+    byId("waiver-roster-need-output").textContent = `${settings.rosterNeed}%`;
+    byId("waiver-position").value = state.waiverPosition;
+    byId("waiver-search").value = state.waiverSearch;
+
+    const recommendations = waiverEngine.rank(state.waiverCandidates, settings);
+    const summary = byId("waiver-summary");
+    summary.replaceChildren();
+    const priorityCount = recommendations.filter((result) => result.priorityRank <= 2).length;
+    const seasonWinnerCount = recommendations.filter((result) => result.labels.seasonWinner === "Strong candidate" || result.labels.seasonWinner === "Possible").length;
+    const highConfidence = recommendations.filter((result) => result.coverage.confidence === "High").length;
+    const targetValues = recommendations.map((result) => result.faab.targetPercent).filter(Number.isFinite);
+    const averageTarget = targetValues.length ? Math.round(targetValues.reduce((total, value) => total + value, 0) / targetValues.length) : 0;
+    [["Candidates", recommendations.length], ["Priority adds", priorityCount], ["Upside flags", seasonWinnerCount], ["Average FAAB", `${averageTarget}%`], ["High confidence", highConfidence]].forEach(([label, value]) => {
+      const card = element("div", "summary-stat");
+      append(card, element("span", "", label), element("strong", "", value));
+      summary.appendChild(card);
+    });
+
+    const query = state.waiverSearch.trim().toLowerCase();
+    const filtered = recommendations.filter((result) => (state.waiverPosition === "ALL" || result.position === state.waiverPosition) && (!query || result.playerName.toLowerCase().includes(query)));
+    const candidateById = new Map(state.waiverCandidates.map((candidate) => [candidate.id, candidate]));
+    const body = byId("waiver-rows");
+    const fragment = document.createDocumentFragment();
+    filtered.forEach((result) => {
+      const candidate = candidateById.get(result.playerId) || {};
+      const row = element("tr", `waiver-priority-${result.priorityRank}`);
+      const priority = element("td", "waiver-priority-cell");
+      append(priority, element("strong", "", result.priorityTier), element("small", "", `${result.coverage.confidence} · ${result.coverage.percentage}% coverage`));
+      row.appendChild(priority);
+
+      const playerCell = element("td", "waiver-player-cell");
+      const trackedPlayer = playerById.get(result.playerId);
+      const name = trackedPlayer ? element("button", "player-detail-button", result.playerName) : element("strong", "", result.playerName);
+      if (trackedPlayer) {
+        name.type = "button";
+        name.addEventListener("click", () => showPlayer(trackedPlayer.id));
+      }
+      append(playerCell, name, positionBadge(result.position));
+      row.appendChild(playerCell);
+      row.appendChild(element("td", "", result.available === false ? "No" : result.rosteredPercent === null ? "Unknown" : `${Math.max(0, 100 - result.rosteredPercent)}%`));
+
+      const scoreCell = element("td", "waiver-score-cell");
+      append(scoreCell, element("strong", "", Number.isFinite(result.score) ? result.score.toFixed(1) : "N/A"), element("small", "", result.labels.seasonWinner));
+      row.appendChild(scoreCell);
+
+      const roleParts = [["Snap", candidate.snapShare], ["Routes", candidate.routeParticipation], ["Opp", candidate.opportunity], ["ROS", candidate.rosProjection]].filter(([, value]) => Number.isFinite(value)).map(([label, value]) => `${label} ${Math.round(value)}`);
+      row.appendChild(element("td", "waiver-role-cell", roleParts.join(" · ") || "No measured role inputs"));
+
+      const faabCell = element("td", "waiver-faab-cell");
+      const dollars = Number.isFinite(result.faab.targetDollars) ? `$${result.faab.targetDollars}` : "—";
+      const range = Number.isFinite(result.faab.minPercent) ? `${result.faab.minPercent}–${result.faab.maxPercent}%` : "Unrated";
+      append(faabCell, element("strong", "", dollars), element("small", "", `${result.faab.targetPercent ?? "—"}% target · ${range}`));
+      row.appendChild(faabCell);
+      row.appendChild(element("td", "", result.relevanceHorizon.label));
+      row.appendChild(element("td", "", `${result.labels.upside} upside · ${result.labels.risk} risk`));
+      row.appendChild(element("td", "waiver-reasons-cell", result.reasons.join(" ")));
+      fragment.appendChild(row);
+    });
+    body.replaceChildren(fragment);
+    const empty = byId("waiver-empty");
+    empty.hidden = state.waiverCandidates.length > 0;
+    byId("waiver-rows").closest(".waiver-table-wrap").hidden = state.waiverCandidates.length === 0;
+  }
+
+  function applyHistoricalDraftText(source) {
+    const parsed = leagueProfiles.parseHistoricalDraftText(source, { teams: leagueProfile.league.teams, leagueName: leagueProfile.league.name });
+    if (!parsed.imported) {
+      byId("history-import-status").textContent = parsed.errors[0] || "No valid historical picks were found.";
+      return false;
+    }
+    const knownAliases = new Set(leagueProfile.managerGroups.flatMap((manager) => manager.aliases.map((alias) => alias.toLowerCase())));
+    const importedManagers = new Set(parsed.seasons.flatMap((season) => season.picks.map((pick) => String(pick[5]).toLowerCase())));
+    const unmapped = [...importedManagers].filter((manager) => !knownAliases.has(manager));
+    const merged = leagueProfiles.mergeHistoricalDrafts(leagueProfile, parsed.seasons);
+    localStorage.setItem(leagueProfiles.STORAGE_KEY, JSON.stringify(merged));
+    const warnings = parsed.errors.length + unmapped.length;
+    byId("history-import-status").textContent = `Compiled ${parsed.imported} picks across ${parsed.seasons.length} season${parsed.seasons.length === 1 ? "" : "s"}.${warnings ? ` ${warnings} warning${warnings === 1 ? "" : "s"}; review skipped rows or manager aliases.` : ""} Reloading subbrains…`;
+    const workspaceId = connectorRuntime.activeWorkspace || localWorkspace?.id;
+    if (connectorRuntime.available && workspaceId) {
+      localApi(`/api/workspaces/${encodeURIComponent(workspaceId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile: merged, appState: snapshotState() })
+      }).then(() => window.setTimeout(() => window.location.reload(), 250)).catch((error) => { byId("history-import-status").textContent = `History compiled, but the workspace save failed: ${error.message}`; });
+    } else {
+      window.setTimeout(() => window.location.reload(), 350);
+    }
+    return true;
+  }
+
+  function handleHistoricalDraftImport(file) {
+    if (file.size > 5_000_000) {
+      byId("history-import-status").textContent = "History import rejected: file exceeds the 5 MB safety limit.";
+      return;
+    }
+    const reader = new FileReader();
+    reader.addEventListener("load", () => applyHistoricalDraftText(String(reader.result)));
+    reader.readAsText(file);
+  }
+
   function switchView(view) {
     document.querySelectorAll(".nav-button").forEach((button) => {
       const active = button.dataset.view === view;
@@ -1616,6 +2344,9 @@
     if (view === "rankings") renderRankings();
     if (view === "model") renderModel(currentResults());
     if (view === "brain") renderBrain();
+    if (view === "team") renderTeam();
+    if (view === "waivers") renderWaivers();
+    if (view === "data") renderData();
     if (view === "accuracy" && !accuracyRendered) {
       renderAccuracy();
       accuracyRendered = true;
@@ -1624,6 +2355,18 @@
 
   function downloadJson(filename, value) {
     const blob = new Blob([JSON.stringify(value, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = element("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadText(filename, value, type = "text/plain") {
+    const blob = new Blob([String(value)], { type: `${type};charset=utf-8` });
     const url = URL.createObjectURL(blob);
     const link = element("a");
     link.href = url;
@@ -1653,11 +2396,22 @@
       return;
     }
     const reader = new FileReader();
-    reader.addEventListener("load", () => {
+    reader.addEventListener("load", async () => {
       try {
         const parsed = JSON.parse(String(reader.result));
-        const profile = leagueProfiles.normalizeProfile({ ...parsed, imported: true });
+        const profileSource = parsed.profile && typeof parsed.profile === "object" ? parsed.profile : parsed;
+        const profile = leagueProfiles.normalizeProfile({ ...profileSource, imported: true });
         if (!profile.managerGroups.some((manager) => manager.id === profile.league.userManagerId)) throw new Error("Your userManagerId must match a manager ID.");
+        if (connectorRuntime.available) {
+          const workspace = await localApi("/api/workspaces", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: parsed.name || profile.league.name, profile, appState: parsed.appState || null, activate: true })
+          });
+          byId("league-import-status").textContent = `Imported ${workspace.name} as a private server workspace. Reloading…`;
+          window.setTimeout(() => window.location.reload(), 250);
+          return;
+        }
         localStorage.setItem(leagueProfiles.STORAGE_KEY, JSON.stringify(profile));
         localStorage.removeItem(`draft-room-state-v3:${profile.id}`);
         localStorage.removeItem(PRIOR_STORAGE_KEY);
@@ -1672,6 +2426,16 @@
   }
 
   function clearLeagueProfile() {
+    if (connectorRuntime.available) {
+      if (!window.confirm("Create and switch to a new blank league workspace? Your current workspace will remain saved.")) return;
+      const profile = leagueProfiles.createDefaultProfile();
+      localApi("/api/workspaces", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: "New fantasy league", profile, activate: true })
+      }).then(() => window.location.reload()).catch((error) => setWorkspaceMessage(error.message, true));
+      return;
+    }
     if (leagueProfile.imported && !window.confirm("Remove the imported league profile from this browser? Export it first if you need a backup.")) return;
     localStorage.removeItem(leagueProfiles.STORAGE_KEY);
     window.location.reload();
@@ -1692,6 +2456,10 @@
         if (Array.isArray(parsed.favoritePlayerIds)) state.favoritePlayerIds = parsed.favoritePlayerIds.filter((playerId) => playerById.has(playerId));
         if (comparisonData.sources[parsed.comparisonSource]) state.comparisonSource = parsed.comparisonSource;
         if (parsed.rankingOverrides && typeof parsed.rankingOverrides === "object") state.rankingOverrides = parsed.rankingOverrides;
+        if (Array.isArray(parsed.waiverCandidates)) state.waiverCandidates = parsed.waiverCandidates.slice(0, 500);
+        if (parsed.waiverSettings && typeof parsed.waiverSettings === "object") Object.assign(state.waiverSettings, parsed.waiverSettings);
+        if (parsed.teamContext && typeof parsed.teamContext === "object") state.teamContext = parsed.teamContext;
+        if (Number.isFinite(Number(parsed.teamWeek))) state.teamWeek = Math.max(1, Math.min(18, Number(parsed.teamWeek)));
         populateDraftSlots();
         state.draftLog = normalizeDraftLog(state.draftLog);
         syncSettings();
@@ -1700,6 +2468,7 @@
         saveState();
         renderBoard();
         renderData();
+        renderWaivers();
       } catch (error) {
         byId("import-status").textContent = `State import rejected: ${error.message}`;
       }
@@ -1721,6 +2490,7 @@
   }
 
   function syncSettings() {
+    reconcileConfirmedUserKeeper();
     if (![...byId("league-teams").options].some((option) => Number(option.value) === Number(state.settings.teams))) {
       const option = element("option", "", `${state.settings.teams}`);
       option.value = String(state.settings.teams);
@@ -1733,6 +2503,11 @@
     byId("projected-keepers").checked = Boolean(state.settings.useProjectedKeepers);
     byId("user-keeper").value = state.settings.userKeeperId || "";
     byId("user-keeper-round").value = String(state.settings.userKeeperRound || 9);
+    const confirmed = state.settings.useProjectedKeepers && brain.projectedKeepers.some((keeper) => keeper.managerId === USER_MANAGER_ID);
+    byId("user-keeper").disabled = confirmed;
+    byId("user-keeper-round").disabled = confirmed;
+    byId("user-keeper").title = confirmed ? "Confirmed keeper loaded from the active league profile." : "";
+    byId("user-keeper-round").title = confirmed ? "Confirmed keeper cost loaded from the active league profile." : "";
   }
 
   function bindEvents() {
@@ -1764,6 +2539,30 @@
     byId("comparison-source").addEventListener("change", (event) => setComparisonSource(event.target.value));
     byId("ranking-comparison-source").addEventListener("change", (event) => setComparisonSource(event.target.value));
     document.querySelectorAll(".nav-button").forEach((button) => button.addEventListener("click", () => switchView(button.dataset.view)));
+    const updateWaiverSetting = (key, value) => {
+      state.waiverSettings[key] = Number(value);
+      saveState();
+      renderWaivers();
+    };
+    byId("waiver-week").addEventListener("change", (event) => updateWaiverSetting("week", Math.max(1, Math.min(18, Number(event.target.value) || 1))));
+    byId("team-week").addEventListener("change", (event) => { state.teamWeek = Math.max(1, Math.min(18, Number(event.target.value) || 1)); saveState(); renderTeam(); });
+    byId("team-open-connections").addEventListener("click", () => switchView("data"));
+    byId("team-sync-now").addEventListener("click", () => connectorAction(() => syncSelectedLeague(), "ESPN team data synced."));
+    byId("waiver-budget").addEventListener("change", (event) => updateWaiverSetting("leagueFaabBudget", Math.max(0, Number(event.target.value) || 0)));
+    byId("waiver-remaining").addEventListener("change", (event) => updateWaiverSetting("remainingFaab", Math.max(0, Number(event.target.value) || 0)));
+    byId("waiver-roster-need").addEventListener("input", (event) => updateWaiverSetting("rosterNeed", Number(event.target.value)));
+    byId("waiver-search").addEventListener("input", (event) => { state.waiverSearch = event.target.value; renderWaivers(); });
+    byId("waiver-position").addEventListener("change", (event) => { state.waiverPosition = event.target.value; renderWaivers(); });
+    byId("waiver-import").addEventListener("change", (event) => { if (event.target.files[0]) handleWaiverImport(event.target.files[0]); event.target.value = ""; });
+    byId("waiver-paste-apply").addEventListener("click", () => applyWaiverCsv(byId("waiver-import-text").value));
+    byId("waiver-template-download").addEventListener("click", () => downloadText("waiver-candidate-template.csv", waiverEngine.createCsvTemplate(), "text/csv"));
+    byId("clear-waiver-candidates").addEventListener("click", () => {
+      if (!state.waiverCandidates.length || window.confirm("Clear every imported waiver candidate?")) {
+        state.waiverCandidates = [];
+        saveState();
+        renderWaivers();
+      }
+    });
     byId("ranking-search").addEventListener("input", (event) => { state.rankingSearch = event.target.value; renderRankings(); });
     byId("ranking-sort").addEventListener("change", (event) => { state.rankingSort = event.target.value; renderRankings(); });
     document.querySelectorAll(".ranking-filter").forEach((button) => button.addEventListener("click", () => {
@@ -1784,9 +2583,9 @@
       saveState();
       renderBoard();
     });
-    byId("draft-slot").addEventListener("change", (event) => { state.settings.draftSlot = Number(event.target.value); syncUserDraftSlot(); state.draftLog = normalizeDraftLog(state.draftLog); saveState(); renderBrain(); renderBoard(); });
+    byId("draft-slot").addEventListener("change", (event) => { state.settings.draftSlot = Number(event.target.value); syncUserDraftSlot(); state.draftLog = normalizeDraftLog(state.draftLog); saveState(); if (!byId("view-brain").hidden) renderBrain(); renderBoard(); });
     byId("starting-qbs").addEventListener("change", (event) => { state.settings.startingQbs = Number(event.target.value); saveState(); renderBoard(); });
-    byId("projected-keepers").addEventListener("change", (event) => { state.settings.useProjectedKeepers = event.target.checked; state.draftLog = normalizeDraftLog(state.draftLog); saveState(); renderBoard(); });
+    byId("projected-keepers").addEventListener("change", (event) => { state.settings.useProjectedKeepers = event.target.checked; reconcileConfirmedUserKeeper(); syncSettings(); state.draftLog = normalizeDraftLog(state.draftLog); saveState(); renderBoard(); });
     byId("user-keeper").addEventListener("change", (event) => {
       state.settings.userKeeperId = event.target.value;
       const player = playerById.get(event.target.value);
@@ -1843,14 +2642,65 @@
     byId("export-league-profile").addEventListener("click", () => downloadJson(`${leagueProfile.id}.json`, leagueProfile));
     byId("clear-league-profile").addEventListener("click", clearLeagueProfile);
     byId("league-import").addEventListener("change", (event) => { if (event.target.files[0]) handleLeagueProfileImport(event.target.files[0]); event.target.value = ""; });
+    byId("history-import").addEventListener("change", (event) => { if (event.target.files[0]) handleHistoricalDraftImport(event.target.files[0]); event.target.value = ""; });
+    byId("history-paste-apply").addEventListener("click", () => applyHistoricalDraftText(byId("history-import-text").value));
+    byId("history-template-download").addEventListener("click", () => downloadText("historical-draft-template.csv", leagueProfiles.createHistoryCsvTemplate(), "text/csv"));
     byId("export-state").addEventListener("click", () => downloadJson(`draft-room-${new Date().toISOString().slice(0, 10)}.json`, {
-      version: 2, exportedAt: new Date().toISOString(), settings: state.settings, weights: state.weights, metricsById: state.metricsById, draftOrder: state.draftOrder, draftLog: state.draftLog, favoritePlayerIds: state.favoritePlayerIds, customPlayers: state.customPlayers, comparisonSource: state.comparisonSource, rankingOverrides: state.rankingOverrides
+      version: 3, exportedAt: new Date().toISOString(), settings: state.settings, weights: state.weights, metricsById: state.metricsById, draftOrder: state.draftOrder, draftLog: state.draftLog, favoritePlayerIds: state.favoritePlayerIds, customPlayers: state.customPlayers, comparisonSource: state.comparisonSource, rankingOverrides: state.rankingOverrides, waiverCandidates: state.waiverCandidates, waiverSettings: state.waiverSettings, teamContext: state.teamContext, teamWeek: state.teamWeek
     }));
     byId("import-state").addEventListener("change", (event) => { if (event.target.files[0]) handleStateImport(event.target.files[0]); event.target.value = ""; });
     byId("metric-import").addEventListener("change", (event) => { if (event.target.files[0]) handleMetricImport(event.target.files[0]); event.target.value = ""; });
+    byId("open-connections").addEventListener("click", () => { switchView("data"); byId("view-data").scrollIntoView({ behavior: "smooth", block: "start" }); });
+    byId("synced-league-selector").addEventListener("change", activateSelectedLeague);
+    byId("sync-active-league").addEventListener("click", () => connectorAction(() => syncSelectedLeague(), "League synced."));
+    byId("refresh-leagues").addEventListener("click", () => refreshConnectors());
+    byId("save-workspace").addEventListener("click", () => saveActiveWorkspace().catch((error) => setWorkspaceMessage(error.message, true)));
+    byId("duplicate-workspace").addEventListener("click", () => duplicateActiveWorkspace().catch((error) => setWorkspaceMessage(error.message, true)));
+    byId("export-workspace").addEventListener("click", () => exportActiveWorkspace().catch((error) => setWorkspaceMessage(error.message, true)));
+    byId("delete-workspace").addEventListener("click", () => deleteActiveWorkspace().catch((error) => setWorkspaceMessage(error.message, true)));
+    byId("refresh-rankings-codex").addEventListener("click", startCodexAnalysis);
+    byId("yahoo-save-config").addEventListener("click", () => connectorAction(async () => {
+      await localApi("/api/connectors/yahoo/configure", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clientId: byId("yahoo-client-id").value, clientSecret: byId("yahoo-client-secret").value, redirectUri: byId("yahoo-redirect-uri").value })
+      });
+      byId("yahoo-client-secret").value = "";
+    }, "Yahoo configuration saved locally."));
+    byId("yahoo-connect").addEventListener("click", () => {
+      const popup = window.open("/api/connectors/yahoo/start", "draft-room-yahoo-auth", "popup,width=620,height=760");
+      if (!popup) setConnectorMessage("Allow popups for this local site, then try Yahoo again.", true);
+      else setConnectorMessage("Complete Yahoo authorization in the popup.");
+    });
+    byId("yahoo-disconnect").addEventListener("click", () => connectorAction(() => localApi("/api/connectors/yahoo/disconnect", { method: "POST" }), "Yahoo disconnected and local tokens removed."));
+    byId("espn-browser-start").addEventListener("click", () => connectorAction(() => localApi("/api/connectors/espn/browser/start", { method: "POST" }), "Dedicated Firefox login opened. Sign in, open a fantasy league, then click Finish connection."));
+    byId("espn-browser-capture").addEventListener("click", () => connectorAction(() => localApi("/api/connectors/espn/browser/capture", { method: "POST" }), "ESPN session captured from the dedicated Firefox profile. Only the two required cookies and ESPN league URLs were retained."));
+    byId("espn-har-import").addEventListener("change", async (event) => {
+      const file = event.target.files[0];
+      event.target.value = "";
+      if (!file) return;
+      if (file.size > 50 * 1024 * 1024) { setConnectorMessage("HAR rejected: file exceeds 50 MB.", true); return; }
+      await connectorAction(async () => {
+        const source = await file.text();
+        await localApi("/api/connectors/espn/har", { method: "POST", headers: { "Content-Type": "application/json" }, body: source });
+      }, "ESPN HAR reviewed. The raw HAR was discarded; only required session fields and league references were retained.");
+    });
+    byId("espn-add-league").addEventListener("click", () => connectorAction(() => localApi("/api/connectors/espn/league", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ leagueId: byId("espn-league-id").value, season: byId("espn-league-season").value })
+    }), "ESPN league reference added."));
+    byId("espn-disconnect").addEventListener("click", () => connectorAction(() => localApi("/api/connectors/espn/disconnect", { method: "POST" }), "ESPN disconnected and the dedicated Firefox profile was removed."));
+    window.addEventListener("message", (event) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "draft-room-auth") return;
+      connectorAction(() => Promise.resolve(), `${String(event.data.provider || "Provider").toUpperCase()} connected. Refreshing leagues…`);
+    });
   }
 
   loadState();
+  const draftSlotReconciled = reconcileSyncedDraftSlot();
+  const keeperReconciled = reconcileConfirmedUserKeeper();
+  if (draftSlotReconciled || keeperReconciled) saveState();
   populateDraftSlots();
   populateKeeperControls();
   syncSettings();
@@ -1860,7 +2710,6 @@
   syncWatchlistCount();
   buildWeightControls();
   bindEvents();
-  renderBrain();
-  renderData();
   renderBoard();
+  refreshConnectors({ quiet: true });
 })();

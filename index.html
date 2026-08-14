@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Local-first fantasy football draft decision assistant">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'none'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
   <title>Draft Room — Fantasy Football Intelligence</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="styles.css">
@@ -19,11 +19,19 @@
         <h1>Draft Room</h1>
       </div>
     </div>
-    <div class="topbar-meta">
-      <span class="status-dot" aria-hidden="true"></span>
-      <span>Local-first</span>
-      <span class="divider" aria-hidden="true"></span>
-      <span id="data-freshness">Research snapshot: Aug 5</span>
+    <div class="topbar-controls">
+      <label class="league-switcher" for="synced-league-selector">
+        <span>League</span>
+        <select id="synced-league-selector" aria-label="Active synced league"><option value="local">Local profile</option></select>
+      </label>
+      <button class="secondary-button compact-button" id="sync-active-league" type="button">Sync</button>
+      <button class="text-button compact-button" id="open-connections" type="button">Connections</button>
+      <div class="topbar-meta">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="connector-mode">Checking server…</span>
+        <span class="divider" aria-hidden="true"></span>
+        <span id="data-freshness">Research snapshot: Aug 14</span>
+      </div>
     </div>
   </header>
 
@@ -33,6 +41,8 @@
     <button class="nav-button" type="button" data-view="brain">Draft brain</button>
     <button class="nav-button" type="button" data-view="accuracy">Accuracy lab</button>
     <button class="nav-button" type="button" data-view="model">Model studio</button>
+    <button class="nav-button" type="button" data-view="team">My team</button>
+    <button class="nav-button" type="button" data-view="waivers">Waivers</button>
     <button class="nav-button" type="button" data-view="data">Data & sources</button>
   </nav>
 
@@ -421,13 +431,187 @@
       </section>
     </section>
 
+    <section class="view content-view team-view" id="view-team" aria-labelledby="team-title" hidden>
+      <div class="content-hero split-hero team-hero">
+        <div>
+          <p class="eyebrow">Weekly lineup command center</p>
+          <h2 id="team-title">My team</h2>
+          <p id="team-hero-copy">Sync an ESPN league to load your roster, weekly projections, opponent, positional grades, and start/sit edges.</p>
+        </div>
+        <div class="team-week-control">
+          <label><span>Scoring week</span><select id="team-week"></select></label>
+          <button class="secondary-button" id="team-sync-now" type="button">Sync ESPN</button>
+        </div>
+      </div>
+
+      <section class="team-empty" id="team-empty">
+        <span class="empty-icon" aria-hidden="true">VS</span>
+        <div><strong>No in-season roster synced</strong><p>Connect ESPN and sync the active league. The app remains read-only and never submits lineup changes.</p></div>
+        <button class="primary-button" id="team-open-connections" type="button">Open connections</button>
+      </section>
+
+      <div id="team-dashboard" hidden>
+        <section class="team-scoreboard">
+          <article class="fantasy-team-card mine" id="my-team-card"></article>
+          <div class="matchup-center">
+            <span id="team-matchup-week">Week —</span>
+            <strong>VS</strong>
+            <small id="team-matchup-status">Projected matchup</small>
+          </div>
+          <article class="fantasy-team-card" id="opponent-team-card"></article>
+        </section>
+
+        <section class="team-position-panel">
+          <div class="side-heading"><h3>Position room grades</h3><span id="team-grade-scope">Relative to this league</span></div>
+          <div class="team-grade-grid" id="team-position-grades"></div>
+        </section>
+
+        <section class="team-comparison-panel">
+          <div class="side-heading"><h3>Starter vs starter</h3><span>Higher weekly projection highlighted</span></div>
+          <div class="slot-comparison-list" id="team-slot-comparisons"></div>
+        </section>
+
+        <div class="team-detail-grid">
+          <section class="team-roster-panel">
+            <div class="side-heading"><h3>Your weekly roster</h3><span id="team-roster-projection">— projected</span></div>
+            <div class="weekly-roster-list" id="team-roster-list"></div>
+          </section>
+          <aside class="team-advice-panel">
+            <div class="side-heading"><h3>Lineup intelligence</h3><span>Read-only advice</span></div>
+            <div class="lineup-alert-list" id="team-lineup-alerts"></div>
+            <div class="weekly-team-note" id="team-weekly-note"></div>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="view content-view waiver-view" id="view-waivers" aria-labelledby="waiver-title" hidden>
+      <div class="content-hero split-hero">
+        <div>
+          <p class="eyebrow">In-season acquisition desk</p>
+          <h2 id="waiver-title">Waiver wire priorities</h2>
+          <p>Rank available players, estimate FAAB ranges, distinguish temporary injury replacements from durable roles, and surface season-winning upside without inventing missing weekly data.</p>
+        </div>
+        <div class="rankings-key">
+          <span>Weekly workflow</span>
+          <strong>Import a local candidate snapshot</strong>
+          <small>No league transaction is submitted here</small>
+        </div>
+      </div>
+
+      <section class="waiver-control-panel">
+        <div class="waiver-settings">
+          <label><span>NFL week</span><input id="waiver-week" type="number" min="1" max="18" value="1"></label>
+          <label><span>Starting FAAB</span><input id="waiver-budget" type="number" min="0" max="10000" value="100"></label>
+          <label><span>FAAB remaining</span><input id="waiver-remaining" type="number" min="0" max="10000" value="100"></label>
+          <label><span>Roster need</span><input id="waiver-roster-need" type="range" min="0" max="100" value="50"><output id="waiver-roster-need-output">50%</output></label>
+        </div>
+        <div class="waiver-import-actions">
+          <label class="secondary-button" for="waiver-import">Import CSV</label>
+          <input class="visually-hidden" id="waiver-import" type="file" accept="text/csv,.csv">
+          <button class="secondary-button" id="waiver-template-download" type="button">Download template</button>
+          <button class="text-button" id="clear-waiver-candidates" type="button">Clear candidates</button>
+        </div>
+        <details class="waiver-paste-panel">
+          <summary>Paste candidate CSV instead</summary>
+          <textarea id="waiver-import-text" rows="7" spellcheck="false" placeholder="name,position,rostered_percent,recent_usage_trend,snap_share,route_participation,opportunity_share,opportunity,role_durability,ros_projection,schedule,position_scarcity,injury_replacement_weeks"></textarea>
+          <button class="primary-button" id="waiver-paste-apply" type="button">Analyze pasted candidates</button>
+        </details>
+        <p class="import-status" id="waiver-import-status" aria-live="polite">Import current weekly usage and availability. Missing metrics remain visibly unscored.</p>
+      </section>
+
+      <div class="accuracy-summary waiver-summary" id="waiver-summary"></div>
+
+      <section class="waiver-board">
+        <div class="board-toolbar waiver-toolbar">
+          <label class="search-field"><span class="visually-hidden">Search waiver candidates</span><input id="waiver-search" type="search" placeholder="Search waiver candidates" autocomplete="off"></label>
+          <label class="compact-select"><span>Position</span><select id="waiver-position"><option value="ALL">All</option><option value="QB">QB</option><option value="RB">RB</option><option value="WR">WR</option><option value="TE">TE</option><option value="K">K</option><option value="DST">DST</option></select></label>
+        </div>
+        <div class="table-wrap waiver-table-wrap">
+          <table class="waiver-table">
+            <thead><tr><th>Priority</th><th>Player</th><th>Available</th><th>Score</th><th>Role evidence</th><th>FAAB</th><th>Horizon</th><th>Upside / risk</th><th>Why</th></tr></thead>
+            <tbody id="waiver-rows"></tbody>
+          </table>
+        </div>
+        <div class="waiver-empty" id="waiver-empty">
+          <strong>No weekly candidates imported</strong>
+          <p>Use the CSV template to enter rostered percentage, usage, role, rest-of-season outlook, schedule, and injury-window information from your preferred read-only sources.</p>
+        </div>
+        <p class="rankings-note">FAAB recommendations use remaining budget, league week, roster need, position scarcity, evidence coverage, role durability, and rest-of-season ceiling. They are ranges—not guarantees.</p>
+      </section>
+    </section>
+
     <section class="view content-view" id="view-data" aria-labelledby="data-title" hidden>
       <div class="content-hero">
         <p class="eyebrow">Controlled local workflow</p>
         <h2 id="data-title">Data & sources</h2>
-        <p>The app never fetches the internet. Research was reviewed as text, then entered into local data files. You control every future update.</p>
+        <p>Static mode uses local files only. When self-hosted, optional server-side connectors can securely read your ESPN or Yahoo leagues after you authorize them.</p>
       </div>
       <div class="data-layout">
+        <section class="model-panel workspace-panel wide-panel">
+          <div class="side-heading"><h3>League workspaces</h3><span id="workspace-profile-status">Checking local server…</span></div>
+          <p class="panel-copy">Each workspace keeps its own league settings, keepers, teams, historical manager personalities, draft state, rosters, waivers, and matchups in private server-side storage.</p>
+          <div class="workspace-editor-row">
+            <label><span>Profile name</span><input id="workspace-name" type="text" maxlength="100" autocomplete="off" placeholder="My fantasy league"></label>
+            <div class="button-row">
+              <button class="primary-button" id="save-workspace" type="button">Save profile</button>
+              <button class="secondary-button" id="duplicate-workspace" type="button">Duplicate</button>
+              <button class="secondary-button" id="export-workspace" type="button">Export full profile</button>
+              <button class="text-button" id="delete-workspace" type="button">Delete</button>
+            </div>
+          </div>
+          <p class="workspace-summary" id="workspace-summary">Loading saved league state…</p>
+          <p class="import-status" id="workspace-action-status" aria-live="polite">Changes autosave locally; use Save profile before intentionally switching devices or shutting down.</p>
+        </section>
+        <section class="model-panel codex-panel wide-panel">
+          <div class="side-heading"><h3>Codex rankings refresh</h3><span id="codex-readiness">Checking CLI…</span></div>
+          <p class="panel-copy">Start a separate non-interactive local Codex job to research current news and rankings, rerun the critic/backtest gates, update approved model files, and run tests. The job uses workspace-write sandboxing and a fixed read-only-web safety prompt.</p>
+          <div class="button-row">
+            <button class="primary-button" id="refresh-rankings-codex" type="button">Ask Codex to refresh rankings</button>
+          </div>
+          <p class="import-status" id="codex-analysis-status" aria-live="polite">No rankings refresh has been started from this site.</p>
+          <p class="analysis-summary" id="codex-analysis-summary">This starts a separate local Codex job, not this current task.</p>
+        </section>
+        <section class="model-panel connector-panel">
+          <div class="side-heading"><h3>League connections</h3><span id="connector-status-label">Checking local server…</span></div>
+          <p class="panel-copy">Credentials stay on this computer in <code>.local-data</code>. Browser JavaScript never receives ESPN cookies, Yahoo tokens, or your Yahoo client secret.</p>
+          <div class="provider-grid">
+            <section class="provider-card">
+              <div class="provider-heading"><div><span class="provider-badge espn">ESPN</span><strong>Authenticated session</strong></div><span id="espn-connection-state">Not connected</span></div>
+              <p>Open a dedicated Firefox profile, sign in to ESPN, and visit your fantasy league. Draft Room reads only the <code>espn_s2</code> and <code>SWID</code> cookies plus ESPN league URLs. You can alternatively import your saved HAR.</p>
+              <div class="button-row">
+                <button class="primary-button" id="espn-browser-start" type="button">Open Firefox login</button>
+                <button class="secondary-button" id="espn-browser-capture" type="button">Finish connection</button>
+                <label class="secondary-button" for="espn-har-import">Import HAR</label>
+                <input class="visually-hidden" id="espn-har-import" type="file" accept="application/json,.har">
+                <button class="text-button" id="espn-disconnect" type="button">Disconnect</button>
+              </div>
+              <div class="manual-league-row">
+                <label><span>League ID</span><input id="espn-league-id" inputmode="numeric" autocomplete="off" placeholder="12345678"></label>
+                <label><span>Season</span><input id="espn-league-season" inputmode="numeric" type="number" min="2020" max="2100" value="2026"></label>
+                <button class="secondary-button" id="espn-add-league" type="button">Add league</button>
+              </div>
+            </section>
+            <section class="provider-card">
+              <div class="provider-heading"><div><span class="provider-badge yahoo">Yahoo</span><strong>Official OAuth</strong></div><span id="yahoo-connection-state">Not configured</span></div>
+              <p>Create a Yahoo developer app and use the callback shown below. The secret and refresh token remain in the local server store and are never included in exports.</p>
+              <div class="credential-grid">
+                <label><span>Client ID</span><input id="yahoo-client-id" type="text" autocomplete="off"></label>
+                <label><span>Client secret</span><input id="yahoo-client-secret" type="password" autocomplete="new-password"></label>
+                <label class="wide-field"><span>Callback URL</span><input id="yahoo-redirect-uri" type="url" readonly></label>
+              </div>
+              <div class="button-row">
+                <button class="secondary-button" id="yahoo-save-config" type="button">Save configuration</button>
+                <button class="primary-button" id="yahoo-connect" type="button">Connect Yahoo</button>
+                <button class="text-button" id="yahoo-disconnect" type="button">Disconnect</button>
+              </div>
+            </section>
+          </div>
+          <div class="connection-footer">
+            <p class="import-status" id="connector-action-status" aria-live="polite">Connect a provider, choose a league above, then sync it into a private local workspace.</p>
+            <button class="secondary-button" id="refresh-leagues" type="button">Refresh leagues</button>
+          </div>
+        </section>
         <section class="model-panel league-profile-panel">
           <div class="side-heading"><h3>League profile</h3><span id="league-profile-status">Blank profile</span></div>
           <p class="panel-copy" id="league-profile-summary">Import a local JSON profile to add your managers, historical drafts, keeper pool, and league settings.</p>
@@ -436,15 +620,15 @@
             <button class="secondary-button" id="export-league-profile" type="button">Export profile</button>
             <button class="text-button" id="clear-league-profile" type="button">Use blank profile</button>
           </div>
-          <p class="import-status" id="league-import-status" aria-live="polite">League profiles stay in this browser and are never uploaded.</p>
+          <p class="import-status" id="league-import-status" aria-live="polite">Self-hosted imports become private workspaces; static imports stay in this browser.</p>
         </section>
         <section class="model-panel">
           <div class="side-heading"><h3>Local dataset</h3><span id="dataset-count">—</span></div>
           <dl class="data-facts">
             <div><dt>Baseline</dt><dd>ESPN rankings and Mike Clay 2026 half-PPR projections</dd></div>
             <div><dt>Context</dt><dd>2026 SoS/unit grades plus labeled 2025 efficiency baselines</dd></div>
-            <div><dt>Network calls</dt><dd>Blocked by application CSP</dd></div>
-            <div><dt>Storage</dt><dd>Your browser localStorage only</dd></div>
+            <div><dt>Network calls</dt><dd>Same-origin only; optional provider reads occur on your local server</dd></div>
+            <div><dt>Storage</dt><dd>Private server workspaces plus a browser cache; all local secrets and profiles are excluded from Git</dd></div>
           </dl>
           <div class="button-row">
             <button class="primary-button" id="export-state" type="button">Export draft state</button>
@@ -462,10 +646,37 @@
           <input class="visually-hidden" id="metric-import" type="file" accept="text/csv,.csv">
           <p class="import-status" id="import-status" aria-live="polite">Loading reviewed local metrics…</p>
         </section>
+        <section class="model-panel history-import-panel">
+          <div class="side-heading"><h3>Past draft history</h3><span>CSV / JSON compiler</span></div>
+          <p class="panel-copy">Add one or more historical drafts to the current league profile. Matching seasons are replaced, manager aliases stay mapped, and the round-by-round subbrains rebuild locally after import.</p>
+          <div class="button-row">
+            <label class="primary-button" for="history-import">Import history</label>
+            <input class="visually-hidden" id="history-import" type="file" accept="application/json,text/csv,text/plain,.json,.csv,.txt">
+            <button class="secondary-button" id="history-template-download" type="button">Download CSV template</button>
+          </div>
+          <details class="history-paste-panel">
+            <summary>Paste normalized CSV</summary>
+            <textarea id="history-import-text" rows="8" spellcheck="false" placeholder="season,league,overall,manager,player,nfl_team,position"></textarea>
+            <button class="primary-button" id="history-paste-apply" type="button">Compile pasted history</button>
+          </details>
+          <p class="import-status" id="history-import-status" aria-live="polite">Recommended columns: season, overall, manager, player, NFL team, and position. Round and round-pick may be supplied instead of overall.</p>
+        </section>
       </div>
       <section class="source-ledger">
         <div class="side-heading"><h3>Research ledger</h3><span>Read-only web sources</span></div>
         <div id="source-ledger"></div>
+      </section>
+      <section class="model-panel research-brain-panel">
+        <div class="side-heading"><h3>Analytics research brain</h3><span id="research-brain-date">—</span></div>
+        <p class="panel-copy" id="research-brain-summary"></p>
+        <div class="research-critic-grid" id="research-critic-grid"></div>
+        <div class="research-table-wrap">
+          <table class="research-table">
+            <thead><tr><th>Metric</th><th>Decision</th><th>Model use</th><th>Evidence and guardrail</th></tr></thead>
+            <tbody id="research-metric-body"></tbody>
+          </table>
+        </div>
+        <div class="research-experiment-grid" id="research-experiment-grid"></div>
       </section>
       <section class="source-ledger">
         <div class="side-heading"><h3>Snapshot registry</h3><span>Versioned local inputs</span></div>
@@ -522,15 +733,19 @@
   <script src="data.js" defer></script>
   <script src="context-data.js" defer></script>
   <script src="context-engine.js" defer></script>
+  <script src="local-profile-bootstrap.js" defer></script>
   <script src="league-profile.js" defer></script>
   <script src="draft-brain.js" defer></script>
   <script src="model.js" defer></script>
   <script src="strategy-engine.js" defer></script>
+  <script src="waiver-engine.js" defer></script>
+  <script src="team-engine.js" defer></script>
   <script src="historical-public-data.js" defer></script>
   <script src="historical-roundtable.js" defer></script>
   <script src="historical-backtest.js" defer></script>
   <script src="wait-calibration.js" defer></script>
   <script src="snapshot-registry.js" defer></script>
+  <script src="analytics-research.js" defer></script>
   <script src="app.js" defer></script>
 </body>
 </html>

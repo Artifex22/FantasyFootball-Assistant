@@ -120,9 +120,10 @@
 
   function tierCliffAdjustment(player, availablePlayers) {
     const samePosition = availablePlayers
-      .filter((candidate) => candidate.position === player.position && candidate.id !== player.id)
+      .filter((candidate) => candidate.position === player.position)
       .sort((a, b) => a.rank - b.rank);
-    const next = samePosition.find((candidate) => candidate.rank > player.rank);
+    if (samePosition[0]?.id !== player.id) return 0;
+    const next = samePosition[1];
     if (!next) return 1;
     if (next.tier > player.tier) return clamp(2 + (next.tier - player.tier) * 1.5, 0, 5);
     const rankGap = next.rank - player.rank;
@@ -131,10 +132,11 @@
 
   function scorePlayers(players, context) {
     const settings = context.settings || { scoring: "half", teams: 12, startingQbs: 1 };
-    const weights = context.weights || { consensus: 35, projectionVor: 25, opportunity: 15, schedule: 8, durability: 10, market: 7 };
+    const weights = context.weights || { consensus: 35, projectionVor: 28, opportunity: 17, schedule: 3, durability: 10, market: 7 };
     const metricsById = context.metricsById || {};
     const draftedIds = new Set(context.draftedIds || []);
     const roster = context.roster || [];
+    const includeDraftAdjustments = context.includeDraftAdjustments !== false;
     const availablePlayers = players.filter((player) => !draftedIds.has(player.id));
     const vorSignals = calculateVorSignals(players, metricsById, settings);
     const totalWeight = Object.values(weights).reduce((sum, value) => sum + Number(value || 0), 0) || 1;
@@ -160,8 +162,8 @@
         weightedSum += value * weight;
       });
       const baseScore = usedWeight ? weightedSum / usedWeight : 0;
-      const need = rosterNeedAdjustment(player, roster, settings);
-      const tierCliff = tierCliffAdjustment(player, availablePlayers);
+      const need = includeDraftAdjustments ? rosterNeedAdjustment(player, roster, settings) : 0;
+      const tierCliff = includeDraftAdjustments ? tierCliffAdjustment(player, availablePlayers) : 0;
       const recommendationScore = clamp(baseScore + need + tierCliff);
       const coverage = clamp((usedWeight / totalWeight) * 100);
 

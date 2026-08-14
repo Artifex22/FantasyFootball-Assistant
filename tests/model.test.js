@@ -26,6 +26,36 @@ test("removes drafted players", () => {
   assert.deepEqual(results.map((result) => result.player.id), ["beta", "gamma"]);
 });
 
+test("macro rankings exclude roster and tier-cliff urgency", () => {
+  const players = [
+    { id: "alpha", name: "Alpha", position: "WR", rank: 1, tier: 1 },
+    { id: "beta", name: "Beta", position: "WR", rank: 9, tier: 1 },
+    { id: "gamma", name: "Gamma", position: "WR", rank: 10, tier: 2 }
+  ];
+  const weights = { consensus: 100, projectionVor: 0, opportunity: 0, schedule: 0, durability: 0, market: 0 };
+  const results = model.scorePlayers(players, { settings, weights, metricsById: {}, draftedIds: [], roster: [], includeDraftAdjustments: false });
+  assert.equal(results[0].player.id, "alpha");
+  assert.deepEqual(results.map((result) => result.adjustments), [
+    { rosterNeed: 0, tierCliff: 0 },
+    { rosterNeed: 0, tierCliff: 0 },
+    { rosterNeed: 0, tierCliff: 0 }
+  ]);
+});
+
+test("tier urgency never promotes a worse same-position player", () => {
+  const tierPlayers = [
+    { id: "best", name: "Best", position: "WR", rank: 1, tier: 1 },
+    { id: "last-elite", name: "Last Elite", position: "WR", rank: 8, tier: 1 },
+    { id: "next-tier", name: "Next Tier", position: "WR", rank: 9, tier: 2 }
+  ];
+  const tierWeights = { consensus: 100, projectionVor: 0, opportunity: 0, schedule: 0, durability: 0, market: 0 };
+  const fullBoard = model.scorePlayers(tierPlayers, { settings, weights: tierWeights, metricsById: {}, draftedIds: [], roster: [] });
+  assert.equal(fullBoard.find((result) => result.player.id === "last-elite").adjustments.tierCliff, 0);
+  assert.equal(fullBoard[0].player.id, "best");
+  const afterBest = model.scorePlayers(tierPlayers, { settings, weights: tierWeights, metricsById: {}, draftedIds: ["best"], roster: [] });
+  assert.ok(afterBest.find((result) => result.player.id === "last-elite").adjustments.tierCliff > 0);
+});
+
 test("projection import activates VOR and increases coverage", () => {
   const metricsById = { alpha: { projection: 300 }, beta: { projection: 280 }, gamma: { projection: 220 } };
   const withoutProjection = model.scorePlayers(players, { settings, weights, metricsById: {}, draftedIds: [], roster: [] });

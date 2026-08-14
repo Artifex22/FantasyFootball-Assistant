@@ -10,6 +10,7 @@ node_modules/
 .DS_Store
 Thumbs.db
 exports/
+.local-data/
 local-league-profile.json
 manager-identities.js
 history-20*.js

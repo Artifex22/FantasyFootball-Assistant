@@ -16,6 +16,6 @@ test("normalizes malformed league values without evaluating imported text", () =
   assert.equal(profile.league.draftSlot, 20);
   assert.equal(profile.league.userManagerId, "my-owner");
   assert.equal(profile.seasons[0].year, 2100);
-  assert.equal(profile.seasons[0].picks[0][4], "WR");
+  assert.equal(profile.seasons[0].picks.length, 0);
   assert.equal(typeof profile.league.name, "string");
 });

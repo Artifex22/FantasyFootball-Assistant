@@ -79,6 +79,12 @@
       });
     });
 
+    const picksByManager = new Map(groups.map((group) => [group.id, []]));
+    picks.forEach((pick) => {
+      if (!picksByManager.has(pick.managerId)) picksByManager.set(pick.managerId, []);
+      picksByManager.get(pick.managerId).push(pick);
+    });
+
     const leagueBandCounts = Object.fromEntries(["early", "middle", "late"].map((band) => [band, Object.fromEntries(POSITIONS.map((position) => [position, 0]))]));
     const leagueBandTotals = { early: 0, middle: 0, late: 0 };
     picks.forEach((pick) => {
@@ -88,7 +94,7 @@
     });
 
     const managerProfiles = groups.map((group) => {
-      const managerPicks = picks.filter((pick) => pick.managerId === group.id);
+      const managerPicks = picksByManager.get(group.id) || [];
       const years = [...new Set(managerPicks.map((pick) => pick.year))].sort();
       const bandCounts = Object.fromEntries(["early", "middle", "late"].map((band) => [band, Object.fromEntries(POSITIONS.map((position) => [position, 0]))]));
       const bandTotals = { early: 0, middle: 0, late: 0 };
@@ -141,38 +147,63 @@
     const eligibleKeys = new Set(finalRosters.filter((record) => record.acquisition === "Draft").map((record) => `${record.managerId}:${record.playerKey}`));
 
     const newestSeason = Math.max(...picks.map((pick) => pick.year), 2025);
+    const leagueRoundCache = new Map();
+    const identityWeights = Object.freeze({ high: 1, medium: 0.82, low: 0.62, none: 0.4 });
 
     function recencyWeight(year) {
-      return 0.82 ** Math.max(0, newestSeason - Number(year || newestSeason));
+      return 2 ** (-Math.max(0, newestSeason - Number(year || newestSeason)) / 2);
+    }
+
+    function roundWeight(distance) {
+      if (distance === 0) return 1;
+      if (distance === 1) return 0.45;
+      if (distance === 2) return 0.15;
+      return 0.03;
     }
 
     function roundKernel(sourcePicks, draftRound) {
       const counts = Object.fromEntries(POSITIONS.map((position) => [position, 0.08]));
       sourcePicks.forEach((pick) => {
         const distance = Math.abs(Number(pick.round) - Number(draftRound));
-        const proximity = Math.exp(-(distance ** 2) / 4.5);
+        const proximity = roundWeight(distance);
         counts[pick.position] += proximity * recencyWeight(pick.year);
       });
       return normalizeDistribution(counts);
     }
 
     function leagueRoundDistribution(draftRound) {
+      if (leagueRoundCache.has(draftRound)) return leagueRoundCache.get(draftRound);
       const distribution = roundKernel(picks, draftRound);
       if (draftRound <= 10) {
         distribution.K *= 0.08;
         distribution.DST *= 0.08;
       }
-      return normalizeDistribution(distribution);
+      const normalized = normalizeDistribution(distribution);
+      leagueRoundCache.set(draftRound, normalized);
+      return normalized;
+    }
+
+    function managerHistoryDetails(managerId, draftRound) {
+      const league = leagueRoundDistribution(draftRound);
+      const managerPicks = picksByManager.get(managerId) || [];
+      const exactSample = managerPicks.filter((pick) => Number(pick.round) === Number(draftRound)).reduce((total, pick) => total + recencyWeight(pick.year), 0);
+      const effectiveSample = managerPicks.reduce((total, pick) => total + roundWeight(Math.abs(Number(pick.round) - Number(draftRound))) * recencyWeight(pick.year), 0);
+      const profile = profileById.get(managerId);
+      const identityWeight = identityWeights[profile?.confidence] || identityWeights.none;
+      const managerConfidence = clamp(identityWeight * effectiveSample / (effectiveSample + 8), 0, 0.72);
+      if (managerPicks.length < 2) return { distribution: league, exactSample, effectiveSample, managerConfidence: 0, identityWeight };
+      const manager = roundKernel(managerPicks, draftRound);
+      return {
+        distribution: normalizeDistribution(Object.fromEntries(POSITIONS.map((position) => [position, manager[position] * managerConfidence + league[position] * (1 - managerConfidence)]))),
+        exactSample,
+        effectiveSample,
+        managerConfidence,
+        identityWeight
+      };
     }
 
     function managerHistoryDistribution(managerId, draftRound) {
-      const league = leagueRoundDistribution(draftRound);
-      const managerPicks = picks.filter((pick) => pick.managerId === managerId);
-      if (managerPicks.length < 4) return league;
-      const manager = roundKernel(managerPicks, draftRound);
-      const nearbySample = managerPicks.reduce((total, pick) => total + Math.exp(-(Math.abs(pick.round - draftRound) ** 2) / 4.5), 0);
-      const confidence = clamp(nearbySample / (nearbySample + 5), 0.18, 0.76);
-      return normalizeDistribution(Object.fromEntries(POSITIONS.map((position) => [position, manager[position] * confidence + league[position] * (1 - confidence)])));
+      return managerHistoryDetails(managerId, draftRound).distribution;
     }
 
     function marketDistribution(draftRound, currentOverall, availablePlayers) {
@@ -231,15 +262,16 @@
     }
 
     function positionProbabilities(managerId, draftRound, draftedPicks, options = {}) {
-      const historyDistribution = managerHistoryDistribution(managerId, draftRound);
+      const historyDetails = managerHistoryDetails(managerId, draftRound);
+      const historyDistribution = historyDetails.distribution;
       const market = marketDistribution(draftRound, options.currentOverall, options.availablePlayers);
       const live = liveDistribution(draftedPicks, draftRound);
       const league = leagueRoundDistribution(draftRound);
       const liveSample = Math.min(60, (draftedPicks || []).length);
-      const liveWeight = 0.05 + (liveSample / 60) * 0.25;
-      const historyWeight = 0.52 - liveWeight * 0.45;
+      const liveWeight = 0.04 + (liveSample / 60) * 0.18;
+      const historyWeight = 0.12 + historyDetails.managerConfidence * 0.46;
       const marketWeight = 0.3;
-      const leagueWeight = 1 - historyWeight - marketWeight - liveWeight;
+      const leagueWeight = Math.max(0.01, 1 - historyWeight - marketWeight - liveWeight);
       const roster = rosterFactors(managerId, draftedPicks, draftRound);
       const raw = Object.fromEntries(POSITIONS.map((position) => {
         const blended = historyDistribution[position] * historyWeight + market[position] * marketWeight + live[position] * liveWeight + league[position] * leagueWeight;
@@ -266,6 +298,121 @@
           reason: reasons.slice(0, 2).join(" + ")
         };
       }).sort((left, right) => right.probability - left.probability || POSITIONS.indexOf(left.position) - POSITIONS.indexOf(right.position));
+    }
+
+    function archetypesFor(player) {
+      const rank = Number(player.rank || player.ecrRank || 999);
+      const rookie = Boolean(player.isRookie);
+      if (player.position === "QB") return [rank <= 40 ? "premium quarterback" : rank <= 120 ? "mid-round starter" : "late-round upside"];
+      if (player.position === "RB") return [rank <= 36 ? "workload anchor" : rookie ? "rookie backfield upside" : rank <= 120 ? "committee value" : "bench upside"];
+      if (player.position === "WR") return [rank <= 36 ? "alpha-volume profile" : rookie ? "rookie breakout" : rank <= 120 ? "target-earning depth" : "late-round receiver"];
+      if (player.position === "TE") return [rank <= 48 ? "premium tight end" : rank <= 130 ? "breakout target" : "late streamer"];
+      return [player.position === "DST" ? "defense streamer" : "kicker streamer"];
+    }
+
+    function roundProfile(managerId, draftRound, draftedPicks = [], options = {}) {
+      const positions = positionProbabilities(managerId, draftRound, draftedPicks, options);
+      const historyDetails = managerHistoryDetails(managerId, draftRound);
+      const liveSample = Math.min(60, draftedPicks.length);
+      const liveWeight = 0.04 + (liveSample / 60) * 0.18;
+      const historyWeight = 0.12 + historyDetails.managerConfidence * 0.46;
+      const marketWeight = 0.3;
+      const leagueWeight = Math.max(0.01, 1 - historyWeight - marketWeight - liveWeight);
+      const coverage = Math.round(clamp((historyDetails.effectiveSample / 8) * 0.7 + (options.availablePlayers?.length ? 0.3 : 0), 0, 1) * 100);
+      const confidenceScore = Math.round(clamp(historyDetails.managerConfidence * 0.62 + Math.min(1, liveSample / 36) * 0.18 + (options.availablePlayers?.length ? 0.2 : 0), 0, 1) * 100);
+      return {
+        managerId,
+        round: Number(draftRound),
+        positions,
+        topPosition: positions[0],
+        exactSample: round(historyDetails.exactSample),
+        effectiveSample: round(historyDetails.effectiveSample),
+        confidence: {
+          score: confidenceScore,
+          grade: confidenceScore >= 68 ? "High" : confidenceScore >= 42 ? "Medium" : "Low",
+          coverage,
+          managerWeight: Math.round(historyWeight * 100),
+          marketWeight: Math.round(marketWeight * 100),
+          liveWeight: Math.round(liveWeight * 100),
+          leagueWeight: Math.round(leagueWeight * 100)
+        }
+      };
+    }
+
+    function predictPick(managerId, draftRound, draftedPicks = [], options = {}) {
+      const currentOverall = Number(options.currentOverall) || ((Number(draftRound) - 1) * (Number(history.league?.teams) || 12) + 1);
+      const roundOutlook = roundProfile(managerId, draftRound, draftedPicks, options);
+      const positionByName = new Map(roundOutlook.positions.map((item) => [item.position, item]));
+      const candidates = (options.availablePlayers || []).map((entry) => entry.player || entry).filter((player) => player && POSITIONS.includes(player.position));
+      const profile = profileById.get(managerId);
+      const favoriteTeamCounts = new Map(profile?.favoriteTeams || []);
+      const managerPicks = picksByManager.get(managerId) || [];
+      const draftedIds = new Set((draftedPicks || []).map((pick) => pick.playerId).filter(Boolean));
+      const scored = candidates.filter((player) => !draftedIds.has(player.id)).map((player) => {
+        const rank = Number(player.rank || player.ecrRank || currentOverall + 36);
+        const spread = Math.min(26, 10 + currentOverall * 0.025);
+        const marketFit = Math.exp(-((rank - currentOverall) ** 2) / (2 * spread ** 2));
+        const positionProbability = (positionByName.get(player.position)?.probability || 1) / 100;
+        const repeats = managerPicks.filter((pick) => pick.playerKey === key(player.name));
+        const repeatWeight = repeats.reduce((total, pick) => total + recencyWeight(pick.year), 0);
+        const teamShare = (favoriteTeamCounts.get(player.team) || 0) / Math.max(profile?.sampleSize || 1, 1);
+        const loyaltyMultiplier = 1 + Math.min(0.4, repeatWeight * 0.16);
+        const teamMultiplier = 1 + Math.min(0.18, teamShare * 1.8);
+        const score = Math.max(0.0001, positionProbability * (0.18 + marketFit * 0.82) * loyaltyMultiplier * teamMultiplier);
+        const reasons = [];
+        if (marketFit >= 0.72) reasons.push("fits the current market range");
+        if (positionProbability >= 0.35) reasons.push(`${player.position} leads this manager forecast`);
+        if (repeatWeight > 0) reasons.push("repeat-player history");
+        if (teamShare >= 0.08) reasons.push(`${player.team} affinity`);
+        if (!reasons.length) reasons.push("market and league baseline");
+        return { player, rank, score, positionProbability, marketFit, reasons };
+      });
+      const positionTotals = new Map();
+      scored.forEach((item) => positionTotals.set(item.player.position, (positionTotals.get(item.player.position) || 0) + item.score));
+      const predictions = scored.map((item) => {
+        const conditionalProbability = item.score / Math.max(positionTotals.get(item.player.position) || item.score, 0.0001);
+        const absoluteProbability = item.positionProbability * conditionalProbability;
+        const rangeWidth = Math.round(Math.min(28, 9 + item.rank * 0.035));
+        return {
+          playerId: item.player.id,
+          name: item.player.name,
+          team: item.player.team,
+          position: item.player.position,
+          probability: round(absoluteProbability * 100),
+          conditionalProbability: round(conditionalProbability * 100),
+          expectedRange: [Math.max(1, item.rank - rangeWidth), item.rank + rangeWidth],
+          archetypes: archetypesFor(item.player),
+          reasons: item.reasons.slice(0, 3)
+        };
+      }).sort((left, right) => right.probability - left.probability || left.expectedRange[0] - right.expectedRange[0]);
+      const topPlayers = predictions.slice(0, Math.max(1, Number(options.limit) || 3));
+      const namedProbability = sum(topPlayers.map((player) => player.probability));
+      return {
+        managerId,
+        pick: { overall: currentOverall, round: Number(draftRound) },
+        positions: roundOutlook.positions,
+        players: topPlayers,
+        fieldProbability: round(Math.max(0, 100 - namedProbability)),
+        confidence: roundOutlook.confidence,
+        evidence: {
+          exactRoundSample: roundOutlook.exactSample,
+          effectiveSample: roundOutlook.effectiveSample,
+          personality: personalityFor(managerId)
+        }
+      };
+    }
+
+    function predictBoard(context = {}) {
+      const teams = Number(context.teams) || Number(history.league?.teams) || 12;
+      const draftOrder = context.draftOrder || groups.map((group) => group.id);
+      const fromOverall = Math.max(1, Number(context.fromOverall) || 1);
+      const throughRound = Math.max(1, Number(context.throughRound) || Number(history.league?.rounds) || 16);
+      const forecasts = [];
+      for (let overall = fromOverall; overall <= teams * throughRound; overall += 1) {
+        const pick = managerAtPick(overall, teams, draftOrder);
+        forecasts.push(predictPick(pick.managerId, pick.round, context.draftedPicks || [], { ...context, currentOverall: overall }));
+      }
+      return forecasts;
     }
 
   function personalityFor(managerId) {
@@ -358,6 +505,9 @@
       nextPickForManager,
       likelyPositions,
       positionProbabilities,
+      roundProfile,
+      predictPick,
+      predictBoard,
       personalityFor,
       forecastReturn
     });

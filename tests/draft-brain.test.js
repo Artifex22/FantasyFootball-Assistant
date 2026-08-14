@@ -86,3 +86,35 @@ test("live position runs influence the next-pick distribution", () => {
   const adjusted = brain.likelyPositions("alpha", 4, liveRun, { currentOverall: 20, availablePlayers });
   assert.ok(adjusted.find((item) => item.position === "RB").probability > baseline.find((item) => item.position === "RB").probability);
 });
+
+test("predicts round-specific positions and plausible player names", () => {
+  const brain = factory.createBrain(history);
+  const forecast = brain.predictPick("alpha", 4, [], {
+    currentOverall: 20,
+    availablePlayers: [
+      { id: "runner-two", name: "Runner Two", team: "AAA", position: "RB", rank: 20 },
+      { id: "catcher-two", name: "Catcher Two", team: "BBB", position: "WR", rank: 21 },
+      { id: "tight-two", name: "Tight Two", team: "CCC", position: "TE", rank: 22 }
+    ]
+  });
+  assert.equal(forecast.managerId, "alpha");
+  assert.equal(forecast.pick.round, 4);
+  assert.equal(forecast.positions.reduce((total, item) => total + item.probability, 0), 100);
+  assert.ok(forecast.players.length > 0);
+  assert.ok(forecast.players[0].probability > 0);
+  assert.ok(forecast.fieldProbability >= 0);
+  assert.ok(["Low", "Medium", "High"].includes(forecast.confidence.grade));
+});
+
+test("builds a round-by-round board forecast", () => {
+  const brain = factory.createBrain(history);
+  const forecasts = brain.predictBoard({
+    teams: 2,
+    draftOrder: ["alpha", "beta"],
+    fromOverall: 1,
+    throughRound: 3,
+    availablePlayers: [{ id: "runner-two", name: "Runner Two", team: "AAA", position: "RB", rank: 3 }]
+  });
+  assert.equal(forecasts.length, 6);
+  assert.deepEqual(forecasts.map((forecast) => forecast.managerId), ["alpha", "beta", "beta", "alpha", "alpha", "beta"]);
+});

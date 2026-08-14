@@ -11,7 +11,10 @@
   function rankFor(sourceId, player, snapshots = {}, overrides = {}) {
     const override = finiteRank(overrides[player.id]) ?? finiteRank(overrides[normalizeName(player.name)]);
     if (override !== null) return override;
-    if (sourceId === "espn") return finiteRank(player.espnOverallRank);
+    if (sourceId === "espn") {
+      const source = snapshots[sourceId];
+      return finiteRank(source?.ranks?.[player.id]) ?? finiteRank(source?.ranks?.[normalizeName(player.name)]) ?? finiteRank(player.espnOverallRank);
+    }
     if (sourceId === "fantasypros") return finiteRank(player.ecrRank);
     if (sourceId === "market") return player.ecrRank ? finiteRank(player.ecrRank + player.ecrVsAdp) : null;
     const source = snapshots[sourceId];
