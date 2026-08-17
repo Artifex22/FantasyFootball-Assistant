@@ -5,7 +5,6 @@
   const model = window.DraftModel;
   const comparisonEngine = window.RankingComparison;
   const comparisonData = window.RANKING_COMPARISON_DATA;
-  const brain = window.DraftBrain;
   const strategyEngine = window.DraftStrategy;
   const waiverEngine = window.WaiverEngine;
   const teamEngine = window.TeamEngine;
@@ -22,6 +21,21 @@
   const identities = window.MANAGER_IDENTITIES || { currentOwners: {} };
   const context = window.DraftContextEngine.createContext(window.DRAFT_CONTEXT_DATA, data.players);
   window.DraftContext = context;
+  const contextSeason = Number(String(context.asOf || "").slice(0, 4)) || new Date().getFullYear();
+  const brainPlayerProfiles = data.players.map((player) => {
+    const details = context.playerContext(player);
+    return {
+      name: player.name,
+      position: player.position,
+      age: details?.durability?.age ?? null,
+      asOfYear: contextSeason,
+      draftYear: details?.durability?.draftYear ?? null,
+      durability: details?.durability?.score ?? null,
+      projection: details?.projection || null
+    };
+  });
+  const brain = window.DraftBrainFactory.createBrain(window.DRAFT_HISTORY, { currentSeason: contextSeason, playerProfiles: brainPlayerProfiles });
+  window.DraftBrain = brain;
   const STORAGE_KEY = `draft-room-state-v4:${localWorkspace?.id || leagueProfile.id}`;
   const PROFILE_STORAGE_KEY = `draft-room-state-v3:${leagueProfile.id}`;
   const PRIOR_STORAGE_KEY = "draft-room-state-v2";
@@ -59,7 +73,8 @@
     waiverSearch: "",
     teamContext: null,
     teamWeek: 1,
-    selectedPlayerId: data.players[0].id
+    selectedPlayerId: data.players[0].id,
+    boardView: { height: 630, width: null, zoom: null, showInsights: true }
   };
 
   const byId = (id) => document.getElementById(id);
@@ -74,6 +89,7 @@
   let workspaceSaveTimer = null;
   let analysisPollTimer = null;
   let accuracyRendered = false;
+  let draftBoardExpanded = false;
   const connectorRuntime = { available: false, statuses: null, leagues: [], active: null, workspaces: [], activeWorkspace: localWorkspace?.id || null, analysis: null };
 
   const METRIC_HELP = Object.freeze({
@@ -397,6 +413,7 @@
       waiverSettings: state.waiverSettings,
       teamContext: state.teamContext,
       teamWeek: state.teamWeek,
+      boardView: state.boardView,
       sort: state.sort,
       sortDirection: state.sortDirection,
       selectedPlayerId: state.selectedPlayerId
@@ -436,6 +453,7 @@
         if (parsed.waiverSettings && typeof parsed.waiverSettings === "object") Object.assign(state.waiverSettings, parsed.waiverSettings);
         if (parsed.teamContext && typeof parsed.teamContext === "object") state.teamContext = parsed.teamContext;
         if (Number.isFinite(Number(parsed.teamWeek))) state.teamWeek = Math.max(1, Math.min(18, Number(parsed.teamWeek)));
+        if (parsed.boardView && typeof parsed.boardView === "object") Object.assign(state.boardView, parsed.boardView);
         if (boardSortDefaults[parsed.sort]) state.sort = parsed.sort;
         if (parsed.sortDirection === "asc" || parsed.sortDirection === "desc") state.sortDirection = parsed.sortDirection;
         if (playerById.has(parsed.selectedPlayerId)) state.selectedPlayerId = parsed.selectedPlayerId;
@@ -585,7 +603,7 @@
   function draftedPicksForBrain() {
     return state.draftLog.map((pick) => {
       const player = playerById.get(pick.playerId);
-      return { ...pick, position: player.position, name: player.name };
+      return { ...pick, position: player.position, name: player.name, team: player.team };
     });
   }
 
@@ -972,7 +990,9 @@
       const button = element("button", "opponent-player-prediction");
       button.type = "button";
       const copy = element("span", "opponent-player-copy");
-      append(copy, element("strong", "", item.name), element("small", "", `${item.position} · ${item.archetypes.join(" / ")} · ${item.reasons[0]}`));
+      const archetypeReason = item.reasons.find((reason) => reason.includes("pp vs league"));
+      const candidateReason = archetypeReason || item.reasons[0];
+      append(copy, element("strong", "", item.name), element("small", "", `${item.position} · ${item.archetypes.join(" / ")} · ${candidateReason}`));
       append(button, copy, element("b", "", `${item.probability}%`));
       button.addEventListener("click", () => showPlayer(item.playerId));
       candidates.appendChild(button);
@@ -1029,11 +1049,83 @@
     container.appendChild(element("p", "builder-reach", `Small-reach limit: ${analysis.allowedReach} picks · Next turn ${analysis.nextPick ? formatPick(analysis.nextPick) : "—"}`));
   }
 
+  function normalizeBoardView() {
+    state.boardView.height = Math.max(240, Math.min(1100, Number(state.boardView.height) || 630));
+    const storedZoom = state.boardView.zoom !== null && state.boardView.zoom !== undefined ? Number(state.boardView.zoom) : NaN;
+    const legacyWidth = Number(state.boardView.cellWidth);
+    const migratedZoom = Number.isFinite(legacyWidth) && legacyWidth > 0 ? Math.round((legacyWidth / 180) * 100) : 100;
+    const normalizedZoom = Math.round((Number.isFinite(storedZoom) ? storedZoom : migratedZoom) / 5) * 5;
+    state.boardView.zoom = Math.max(30, Math.min(150, normalizedZoom));
+    const storedWidth = Number(state.boardView.width);
+    state.boardView.width = state.boardView.width !== null && state.boardView.width !== undefined && Number.isFinite(storedWidth)
+      ? Math.max(640, storedWidth)
+      : null;
+    delete state.boardView.cellWidth;
+    state.boardView.showInsights = state.boardView.showInsights !== false;
+  }
+
+  function applyDraftBoardView() {
+    normalizeBoardView();
+    const board = byId("live-draft-board");
+    const boardShell = board.closest(".board-shell");
+    const sidebar = boardShell.querySelector(".draft-sidebar");
+    const shellGap = Number.parseFloat(getComputedStyle(boardShell).columnGap) || 0;
+    const availableMainWidth = Math.max(640, boardShell.clientWidth - sidebar.getBoundingClientRect().width - shellGap);
+    if (Number.isFinite(state.boardView.width)) state.boardView.width = Math.min(state.boardView.width, availableMainWidth);
+    boardShell.style.setProperty("--draft-main-width", Number.isFinite(state.boardView.width) ? `${state.boardView.width}px` : "1fr");
+    board.style.setProperty("--draft-board-height", `${state.boardView.height}px`);
+    board.style.setProperty("--draft-board-zoom", String(state.boardView.zoom / 100));
+    const gridScroll = board.querySelector(".draft-grid-scroll");
+    const teamCount = Math.max(1, Number(state.settings.teams) || 12);
+    const zoomScale = state.boardView.zoom / 100;
+    const fittedCellWidth = Math.max(0, (gridScroll.clientWidth - (42 * zoomScale) - teamCount) / teamCount);
+    const fittedRowHeight = Math.max(0, (gridScroll.clientHeight - (52 * zoomScale) - DRAFT_ROUNDS) / DRAFT_ROUNDS);
+    board.style.setProperty("--draft-fit-cell-width", `${fittedCellWidth}px`);
+    board.style.setProperty("--draft-fit-row-height", `${fittedRowHeight}px`);
+    board.classList.toggle("hide-pick-insights", !state.boardView.showInsights);
+    board.classList.toggle("overview", state.boardView.zoom <= 50);
+    board.classList.toggle("expanded", draftBoardExpanded);
+    document.body.classList.toggle("draft-board-expanded", draftBoardExpanded);
+    byId("draft-board-zoom").value = String(state.boardView.zoom);
+    byId("draft-board-zoom-value").textContent = `${state.boardView.zoom}%`;
+    byId("draft-pick-insights").checked = state.boardView.showInsights;
+    const expandButton = byId("expand-draft-board");
+    expandButton.textContent = draftBoardExpanded ? "Exit full screen" : "Full screen";
+    expandButton.setAttribute("aria-pressed", String(draftBoardExpanded));
+  }
+
+  function setDraftBoardExpanded(expanded) {
+    draftBoardExpanded = Boolean(expanded);
+    applyDraftBoardView();
+  }
+
+  function setDraftBoardZoom(zoom, persist = false) {
+    state.boardView.zoom = Math.round(Number(zoom) / 5) * 5;
+    applyDraftBoardView();
+    if (persist) saveState();
+  }
+
+  function fitDraftBoardWidth() {
+    const scroll = byId("live-draft-board").querySelector(".draft-grid-scroll");
+    const teamCount = Math.max(1, Number(state.settings.teams) || 12);
+    const naturalWidth = 42 + (teamCount * 180) + teamCount;
+    const availableWidth = Math.max(1, scroll.clientWidth - 2);
+    setDraftBoardZoom(Math.floor((availableWidth / naturalWidth) * 100 / 5) * 5, true);
+    scroll.scrollLeft = 0;
+  }
+
+  function fillDraftBoardSpace() {
+    state.boardView.width = null;
+    applyDraftBoardView();
+    saveState();
+  }
+
   function renderDraftGrid() {
     const grid = byId("draft-grid");
     const fragment = document.createDocumentFragment();
     const teams = Number(state.settings.teams);
     grid.style.setProperty("--draft-columns", String(teams));
+    grid.style.setProperty("--draft-rounds", String(DRAFT_ROUNDS));
     fragment.appendChild(element("div", "draft-grid-corner", "RD"));
     state.draftOrder.forEach((managerId, index) => {
       const header = element("div", `draft-grid-header${managerId === USER_MANAGER_ID ? " mine" : ""}`);
@@ -1044,7 +1136,21 @@
     const pickByOverall = new Map(state.draftLog.map((pick) => [pick.overall, pick]));
     const currentOverall = nextOpenOverall();
     const draftedPicks = draftedPicksForBrain();
-    const predictionCache = new Map();
+    const lockedPicks = [...keeperByOverall.entries()].map(([overall, keeper]) => {
+      const player = playerById.get(keeper.playerId);
+      return { ...keeper, overall, position: player?.position, name: player?.name };
+    });
+    const boardForecasts = brain.predictBoard({
+      teams,
+      draftOrder: state.draftOrder,
+      throughRound: DRAFT_ROUNDS,
+      draftedPicks,
+      lockedPicks,
+      availablePlayers: latestBoardResults,
+      startingQbs: Number(state.settings.startingQbs),
+      limit: 2
+    });
+    const forecastByOverall = new Map(boardForecasts.map((forecast) => [forecast.pick.overall, forecast]));
     for (let draftRound = 1; draftRound <= DRAFT_ROUNDS; draftRound += 1) {
       fragment.appendChild(element("div", "draft-round-label", draftRound));
       state.draftOrder.forEach((managerId) => {
@@ -1056,22 +1162,26 @@
         const cell = element("div", `draft-grid-cell${status}${managerId === USER_MANAGER_ID ? " mine" : ""}${player ? "" : " forecast"}`);
         if (player) {
           cell.dataset.position = player.position;
-          append(cell, element("span", "", formatPick(overall)), element("strong", "", player.name), element("small", "", keeper ? "Projected keeper" : `${player.position} · ${managerName(pick?.managerId || managerId)}${player.isCustom ? " · Custom" : ""}`));
+          const recordedInsight = keeper ? `Locked keeper · ${player.position}` : `Recorded pick · ${player.position}${player.isCustom ? " · custom player" : ""}`;
+          append(cell, element("span", "", formatPick(overall)), element("strong", "", player.name), element("small", "", keeper ? "Projected keeper" : `${player.position} · ${managerName(pick?.managerId || managerId)}${player.isCustom ? " · Custom" : ""}`), element("small", "draft-cell-insight", recordedInsight));
         } else {
-          const cacheKey = `${managerId}:${draftRound}:${overall}`;
-          if (!predictionCache.has(cacheKey)) {
-            predictionCache.set(cacheKey, brain.predictPick(managerId, draftRound, draftedPicks, {
-              availablePlayers: latestBoardResults,
-              currentOverall: overall,
-              limit: 2
-            }));
-          }
-          const prediction = predictionCache.get(cacheKey);
+          const prediction = forecastByOverall.get(overall);
           const likely = prediction.positions[0];
+          const selectedPlayer = prediction.selectedPlayer || prediction.players[0];
           const names = prediction.players.map((candidate) => candidate.name).join(" / ");
+          const archetypeReason = selectedPlayer?.reasons?.find((reason) => reason.includes("pp vs league"));
+          const archetypeFit = selectedPlayer?.archetypeAdjustment
+            ? `${selectedPlayer.archetypeAdjustment > 0 ? "+" : ""}${selectedPlayer.archetypeAdjustment}% archetype fit`
+            : null;
+          const insightParts = [...new Set([
+            likely?.reason,
+            archetypeReason || archetypeFit || selectedPlayer?.reasons?.[0],
+            prediction.evidence?.personality?.label,
+            `${prediction.confidence.grade} confidence`
+          ].filter(Boolean))].slice(0, 3);
           cell.dataset.position = likely?.position || "";
-          append(cell, element("span", "", formatPick(overall)), element("strong", "draft-cell-forecast", likely ? `${likely.position} ${likely.probability}%` : "Baseline"), element("small", "draft-cell-candidates", names || managerName(managerId)));
-          cell.title = `${managerName(managerId)} · ${prediction.confidence.grade} confidence · ${prediction.players.map((candidate) => `${candidate.name} ${candidate.probability}%`).join(", ") || "no named candidate"} · ${prediction.fieldProbability}% field`;
+          append(cell, element("span", "", formatPick(overall)), element("strong", "draft-cell-forecast", likely ? `${likely.position} ${likely.probability}%` : "Baseline"), element("small", "draft-cell-candidates", names || managerName(managerId)), element("small", "draft-cell-insight", insightParts.join(" · ") || "League and market baseline"));
+          cell.title = `${managerName(managerId)} · ${prediction.confidence.grade} confidence · ${prediction.players.map((candidate) => `${candidate.name} ${candidate.probability}%`).join(", ") || "no named candidate"} · ${insightParts.join(" · ")} · ${prediction.fieldProbability}% field`;
         }
         fragment.appendChild(cell);
       });
@@ -1283,19 +1393,54 @@
       const aliases = profile.aliases.length > 1 ? `Aliases: ${profile.aliases.slice(1).join(", ")}` : "No confirmed prior alias";
       const repeats = profile.repeats.length ? `Repeated targets: ${profile.repeats.slice(0, 2).map(([name, count]) => `${name} ${count}×`).join(", ")}` : "No repeated-player signal";
       const owner = identities.currentOwners[profile.id];
-      append(card, heading, element("p", "manager-sample", `${owner ? `${owner} · ` : ""}${profile.sampleSize} picks · ${profile.years.join("–") || "no history"}`), element("p", "", `Early mix: ${tendency || "league baseline"}`), element("p", "", `Median QB R${profile.medianRound.QB || "—"} · TE R${profile.medianRound.TE || "—"}`), element("p", "manager-aliases", aliases), element("p", "manager-repeats", repeats));
+      const personality = brain.personalityFor(profile.id);
+      const archetypeBlock = element("div", "manager-archetype-block");
+      const archetypeHeading = element("div", "manager-archetype-heading");
+      append(archetypeHeading, element("strong", "", "Player-type lean"), element("span", "", `${personality.coverage}% trait coverage`));
+      const archetypeChips = element("div", "manager-archetype-chips");
+      if (personality.archetypes.length) {
+        personality.archetypes.slice(0, 4).forEach((signal) => {
+          const lift = Math.round(signal.lift * 100);
+          const chip = element("span", `manager-archetype-chip ${lift >= 0 ? "positive" : "negative"}`, `${signal.label} ${lift >= 0 ? "+" : ""}${lift}pp`);
+          chip.title = `Observed ${Math.round(signal.observedRate * 100)}% of ${signal.eligible} eligible picks; league ${Math.round(signal.leagueRate * 100)}%. Shrunk estimate ${Math.round(signal.adjustedRate * 100)}%; reliability ${Math.round(signal.reliability * 100)}%.`;
+          archetypeChips.appendChild(chip);
+        });
+      } else archetypeChips.appendChild(element("span", "manager-archetype-empty", "No stable divergence from the league yet"));
+      append(archetypeBlock, archetypeHeading, archetypeChips);
+      const profileDetails = element("details", "manager-archetype-details");
+      profileDetails.appendChild(element("summary", "", "Archetype & build evidence"));
+      const evidenceList = element("div", "manager-evidence-list");
+      personality.archetypes.forEach((signal) => {
+        const lift = Math.round(signal.lift * 100);
+        append(evidenceList, element("p", lift >= 0 ? "positive" : "negative", `${signal.label}: ${Math.round(signal.observedRate * 100)}% observed vs ${Math.round(signal.leagueRate * 100)}% league (${lift >= 0 ? "+" : ""}${lift}pp after shrinkage, n=${signal.eligible}).`));
+      });
+      personality.construction.forEach((signal) => {
+        const lift = Math.round(signal.lift * 100);
+        append(evidenceList, element("p", "construction", `${signal.label}: ${Math.round(signal.observedRate * 100)}% vs ${Math.round(signal.leagueRate * 100)}% league (${lift >= 0 ? "+" : ""}${lift}pp, n=${signal.sample}).`));
+      });
+      if (!personality.archetypes.length && !personality.construction.length) evidenceList.appendChild(element("p", "", "The confirmed sample does not yet separate this manager from league behavior."));
+      if (personality.limitations.length) evidenceList.appendChild(element("p", "limitation", `Not scored without dated evidence: ${personality.limitations.join(", ")}.`));
+      append(profileDetails, evidenceList, element("p", "manager-evidence-note", "Positive lift means this manager selected the trait more often than this league after regression. It is a tendency, not a guarantee."));
+      append(card, heading, element("p", "manager-sample", `${owner ? `${owner} · ` : ""}${profile.sampleSize} picks · ${profile.years.join("–") || "no history"}`), element("p", "manager-personality-summary", personality.details), element("p", "", `Early mix: ${tendency || "league baseline"} · Median QB R${profile.medianRound.QB || "—"} · TE R${profile.medianRound.TE || "—"}`), archetypeBlock, profileDetails, element("p", "manager-aliases", aliases), element("p", "manager-repeats", repeats));
       const roundDetails = element("details", "manager-round-details");
       roundDetails.appendChild(element("summary", "", "Round-by-round outlook"));
       const roundStrip = element("div", "manager-round-strip");
-      for (let draftRound = 1; draftRound <= DRAFT_ROUNDS; draftRound += 1) {
-        const overall = brain.overallForManagerRound(profile.id, draftRound, Number(state.settings.teams), state.draftOrder);
-        const outlook = brain.roundProfile(profile.id, draftRound, [], { availablePlayers: data.players, currentOverall: overall });
+      const simulation = brain.simulateManagerDraft(profile.id, {
+        rounds: DRAFT_ROUNDS,
+        teams: Number(state.settings.teams),
+        draftOrder: state.draftOrder,
+        draftedPicks: draftedPicksForBrain(),
+        availablePlayers: data.players,
+        startingQbs: Number(state.settings.startingQbs)
+      });
+      simulation.rounds.forEach((outlook) => {
         const roundCell = element("div", "manager-round-cell");
-        append(roundCell, element("span", "", `R${draftRound}`), positionBadge(outlook.topPosition.position), element("strong", "", `${outlook.topPosition.probability}%`));
-        roundCell.title = `${outlook.positions.slice(0, 4).map((item) => `${item.position} ${item.probability}%`).join(" · ")} · ${outlook.confidence.grade} confidence · exact sample ${outlook.exactSample}`;
+        append(roundCell, element("span", "", `R${outlook.round}`), positionBadge(outlook.selectedPosition), element("strong", "", outlook.actual ? "PICK" : `${outlook.selectedProbability}%`));
+        roundCell.title = `${outlook.actual ? "Recorded pick" : "Sequential projection"} · ${outlook.positions.slice(0, 4).map((item) => `${item.position} ${item.probability}%`).join(" · ")} · ${outlook.confidence.grade} confidence · exact sample ${outlook.exactSample}`;
         roundStrip.appendChild(roundCell);
-      }
-      append(roundDetails, roundStrip, element("p", "manager-round-note", "Exact-round history receives the strongest weight; adjacent rounds, current market, roster construction, live runs, and league regression remain visible in the forecast."));
+      });
+      const projectedBuild = ["QB", "RB", "WR", "TE", "K", "DST"].map((position) => `${simulation.rosterCounts[position]} ${position}`).join(" · ");
+      append(roundDetails, roundStrip, element("p", "manager-round-note", `Projected build: ${projectedBuild}. Each round is conditioned on the projected prior roster; starter needs strengthen as remaining picks run out.`));
       card.appendChild(roundDetails);
       grid.appendChild(card);
     });
@@ -1625,6 +1770,7 @@
       ? `${workspace.keepers} keepers · ${workspace.rosters} rosters · ${workspace.waivers} waiver candidates · ${workspace.matchups} matchups · ${workspace.historicalPicks} historical picks.`
       : "Start the self-hosted server to save complete, isolated league workspaces.";
     ["save-workspace", "duplicate-workspace", "export-workspace", "delete-workspace"].forEach((id) => { byId(id).disabled = !workspace || !connectorRuntime.available; });
+    byId("import-workspace-trigger").disabled = !connectorRuntime.available;
   }
 
   async function saveActiveWorkspace({ quiet = false } = {}) {
@@ -1663,6 +1809,32 @@
     const workspace = await localApi(`/api/workspaces/${encodeURIComponent(workspaceId)}`);
     downloadJson(`${workspace.id}-workspace.json`, { ...workspace, exportedAt: new Date().toISOString() });
     setWorkspaceMessage(`Exported ${workspace.name} with its saved league state.`);
+  }
+
+  async function importWorkspace(file) {
+    if (!connectorRuntime.available) throw new Error("Full profile import requires the self-hosted local server.");
+    if (file.size > 10 * 1024 * 1024) throw new Error("The full profile file exceeds the 10 MB import limit.");
+    let payload;
+    try { payload = JSON.parse(await file.text()); } catch (error) { throw new Error("The selected full profile is not valid JSON."); }
+    const source = payload?.workspace && typeof payload.workspace === "object" ? payload.workspace : payload;
+    if (!source || typeof source !== "object" || !source.profile || typeof source.profile !== "object") throw new Error("This file is not a Draft Room full profile export.");
+    const requestedName = String(source.name || source.profile?.league?.name || "Imported fantasy league").slice(0, 100);
+    if (!window.confirm(`Import “${requestedName}” as a separate local profile? Existing profiles will not be overwritten.`)) return;
+    setWorkspaceMessage(`Importing ${requestedName}…`);
+    const workspace = await localApi("/api/workspaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: requestedName,
+        profile: source.profile,
+        leagueSnapshot: source.leagueSnapshot || null,
+        appState: source.appState || null,
+        rankingAnalysis: source.rankingAnalysis || null,
+        activate: true
+      })
+    });
+    setWorkspaceMessage(`Imported ${workspace.name}. Reloading its saved league state…`);
+    window.setTimeout(() => window.location.reload(), 200);
   }
 
   async function deleteActiveWorkspace() {
@@ -2460,9 +2632,11 @@
         if (parsed.waiverSettings && typeof parsed.waiverSettings === "object") Object.assign(state.waiverSettings, parsed.waiverSettings);
         if (parsed.teamContext && typeof parsed.teamContext === "object") state.teamContext = parsed.teamContext;
         if (Number.isFinite(Number(parsed.teamWeek))) state.teamWeek = Math.max(1, Math.min(18, Number(parsed.teamWeek)));
+        if (parsed.boardView && typeof parsed.boardView === "object") Object.assign(state.boardView, parsed.boardView);
         populateDraftSlots();
         state.draftLog = normalizeDraftLog(state.draftLog);
         syncSettings();
+        applyDraftBoardView();
         buildWeightControls();
         syncWatchlistCount();
         saveState();
@@ -2527,6 +2701,71 @@
       if (event.target.closest("[data-metric-tooltip]")) hideMetricTooltip();
     });
     document.addEventListener("scroll", hideMetricTooltip, true);
+    byId("draft-board-zoom").addEventListener("input", (event) => setDraftBoardZoom(event.target.value));
+    byId("draft-board-zoom").addEventListener("change", saveState);
+    byId("draft-zoom-out").addEventListener("click", () => setDraftBoardZoom(state.boardView.zoom - 5, true));
+    byId("draft-zoom-in").addEventListener("click", () => setDraftBoardZoom(state.boardView.zoom + 5, true));
+    byId("draft-fit-width").addEventListener("click", fitDraftBoardWidth);
+    byId("draft-fill-space").addEventListener("click", fillDraftBoardSpace);
+    const draftGridScroll = byId("live-draft-board").querySelector(".draft-grid-scroll");
+    draftGridScroll.addEventListener("wheel", (event) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      setDraftBoardZoom(state.boardView.zoom + (event.deltaY < 0 ? 5 : -5), true);
+    }, { passive: false });
+    const boardResizer = byId("draft-board-resizer");
+    let resizeStart = null;
+    boardResizer.addEventListener("pointerdown", (event) => {
+      const boardMain = boardResizer.closest(".board-main");
+      const boardShell = boardMain.closest(".board-shell");
+      const sidebar = boardShell.querySelector(".draft-sidebar");
+      const shellGap = Number.parseFloat(getComputedStyle(boardShell).columnGap) || 0;
+      resizeStart = {
+        pointerId: event.pointerId,
+        x: event.clientX,
+        y: event.clientY,
+        width: boardMain.getBoundingClientRect().width,
+        height: state.boardView.height,
+        maxWidth: boardShell.clientWidth - sidebar.getBoundingClientRect().width - shellGap
+      };
+      boardResizer.classList.add("dragging");
+      event.preventDefault();
+    });
+    window.addEventListener("pointermove", (event) => {
+      if (!resizeStart || resizeStart.pointerId !== event.pointerId) return;
+      state.boardView.width = Math.max(640, Math.min(resizeStart.maxWidth, resizeStart.width + event.clientX - resizeStart.x));
+      state.boardView.height = resizeStart.height + event.clientY - resizeStart.y;
+      applyDraftBoardView();
+    });
+    const finishBoardResize = (event) => {
+      if (!resizeStart || resizeStart.pointerId !== event.pointerId) return;
+      resizeStart = null;
+      boardResizer.classList.remove("dragging");
+      saveState();
+    };
+    window.addEventListener("pointerup", finishBoardResize);
+    window.addEventListener("pointercancel", finishBoardResize);
+    boardResizer.addEventListener("keydown", (event) => {
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) return;
+      event.preventDefault();
+      if (event.key === "ArrowUp" || event.key === "ArrowDown") state.boardView.height += event.key === "ArrowDown" ? 30 : -30;
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        const currentWidth = byId("live-draft-board").closest(".board-main").getBoundingClientRect().width;
+        state.boardView.width = currentWidth + (event.key === "ArrowRight" ? 40 : -40);
+      }
+      applyDraftBoardView();
+      saveState();
+    });
+    window.addEventListener("resize", applyDraftBoardView);
+    byId("draft-pick-insights").addEventListener("change", (event) => {
+      state.boardView.showInsights = event.target.checked;
+      applyDraftBoardView();
+      saveState();
+    });
+    byId("expand-draft-board").addEventListener("click", () => setDraftBoardExpanded(!draftBoardExpanded));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && draftBoardExpanded) setDraftBoardExpanded(false);
+    });
     byId("open-custom-pick").addEventListener("click", openCustomPickDialog);
     byId("close-custom-pick").addEventListener("click", () => byId("custom-pick-dialog").close());
     byId("cancel-custom-pick").addEventListener("click", () => byId("custom-pick-dialog").close());
@@ -2646,7 +2885,7 @@
     byId("history-paste-apply").addEventListener("click", () => applyHistoricalDraftText(byId("history-import-text").value));
     byId("history-template-download").addEventListener("click", () => downloadText("historical-draft-template.csv", leagueProfiles.createHistoryCsvTemplate(), "text/csv"));
     byId("export-state").addEventListener("click", () => downloadJson(`draft-room-${new Date().toISOString().slice(0, 10)}.json`, {
-      version: 3, exportedAt: new Date().toISOString(), settings: state.settings, weights: state.weights, metricsById: state.metricsById, draftOrder: state.draftOrder, draftLog: state.draftLog, favoritePlayerIds: state.favoritePlayerIds, customPlayers: state.customPlayers, comparisonSource: state.comparisonSource, rankingOverrides: state.rankingOverrides, waiverCandidates: state.waiverCandidates, waiverSettings: state.waiverSettings, teamContext: state.teamContext, teamWeek: state.teamWeek
+      version: 3, exportedAt: new Date().toISOString(), settings: state.settings, weights: state.weights, metricsById: state.metricsById, draftOrder: state.draftOrder, draftLog: state.draftLog, favoritePlayerIds: state.favoritePlayerIds, customPlayers: state.customPlayers, comparisonSource: state.comparisonSource, rankingOverrides: state.rankingOverrides, waiverCandidates: state.waiverCandidates, waiverSettings: state.waiverSettings, teamContext: state.teamContext, teamWeek: state.teamWeek, boardView: state.boardView
     }));
     byId("import-state").addEventListener("change", (event) => { if (event.target.files[0]) handleStateImport(event.target.files[0]); event.target.value = ""; });
     byId("metric-import").addEventListener("change", (event) => { if (event.target.files[0]) handleMetricImport(event.target.files[0]); event.target.value = ""; });
@@ -2657,6 +2896,12 @@
     byId("save-workspace").addEventListener("click", () => saveActiveWorkspace().catch((error) => setWorkspaceMessage(error.message, true)));
     byId("duplicate-workspace").addEventListener("click", () => duplicateActiveWorkspace().catch((error) => setWorkspaceMessage(error.message, true)));
     byId("export-workspace").addEventListener("click", () => exportActiveWorkspace().catch((error) => setWorkspaceMessage(error.message, true)));
+    byId("import-workspace-trigger").addEventListener("click", () => byId("import-workspace").click());
+    byId("import-workspace").addEventListener("change", (event) => {
+      const file = event.target.files[0];
+      if (file) importWorkspace(file).catch((error) => setWorkspaceMessage(error.message, true));
+      event.target.value = "";
+    });
     byId("delete-workspace").addEventListener("click", () => deleteActiveWorkspace().catch((error) => setWorkspaceMessage(error.message, true)));
     byId("refresh-rankings-codex").addEventListener("click", startCodexAnalysis);
     byId("yahoo-save-config").addEventListener("click", () => connectorAction(async () => {
@@ -2704,6 +2949,7 @@
   populateDraftSlots();
   populateKeeperControls();
   syncSettings();
+  applyDraftBoardView();
   renderLeagueProfile();
   syncComparisonControls();
   syncComparisonHeadings();

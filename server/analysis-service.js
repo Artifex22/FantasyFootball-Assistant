@@ -33,7 +33,7 @@ function resolveCodexExecutable(options = {}) {
     available: false,
     executable: null,
     version: null,
-    message: "No separately runnable Codex CLI was found. The Microsoft Store desktop executable cannot be launched by this local Node server. Install the Codex CLI or set CODEX_CLI_PATH to a trusted executable."
+    message: "No separately runnable Codex CLI was found. Install a supported CLI for this operating system or set CODEX_CLI_PATH to a trusted executable."
   };
 }
 

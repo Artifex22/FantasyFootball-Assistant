@@ -194,6 +194,9 @@ function createEspnConnector(store, options = {}) {
   function browserExecutable() {
     const candidates = [
       process.env.ESPN_FIREFOX_PATH,
+      "/usr/bin/firefox",
+      "/usr/bin/firefox-esr",
+      "/snap/bin/firefox",
       "C:\\Program Files\\Mozilla Firefox\\firefox.exe",
       "C:\\Program Files (x86)\\Mozilla Firefox\\firefox.exe"
     ].filter(Boolean);

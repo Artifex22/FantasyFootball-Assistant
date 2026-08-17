@@ -17,7 +17,15 @@ const { createApiRouter } = require("./server/api-router.js");
 const root = __dirname;
 const port = Number(process.env.PORT || 4173);
 const bindHost = process.env.HOST || "127.0.0.1";
-const publicOrigin = process.env.PUBLIC_ORIGIN || `http://127.0.0.1:${port}`;
+function normalizeOrigin(value) {
+  try {
+    return new URL(String(value || "")).origin;
+  } catch (error) {
+    return null;
+  }
+}
+
+const publicOrigin = normalizeOrigin(process.env.PUBLIC_ORIGIN) || `http://127.0.0.1:${port}`;
 const localProfilePath = path.join(root, "local-league-profile.json");
 const localBootstrapPath = "/local-profile-bootstrap.js";
 const contentTypes = new Map([
@@ -51,10 +59,14 @@ function isAllowedHost(host) {
   return ["127.0.0.1", "localhost", "::1", ...configured].includes(hostname);
 }
 
-function isAllowedOrigin(request) {
+function isAllowedOrigin(request, configuredOrigin = publicOrigin) {
   const origin = request.headers.origin;
   if (!origin) return true;
-  return origin === `http://${request.headers.host}`;
+  const normalizedOrigin = normalizeOrigin(origin);
+  if (!normalizedOrigin) return false;
+  const directOrigin = normalizeOrigin(`http://${request.headers.host}`);
+  const allowedOrigins = new Set([directOrigin, normalizeOrigin(configuredOrigin)].filter(Boolean));
+  return allowedOrigins.has(normalizedOrigin);
 }
 
 function isPrivateLocalPath(pathname) {

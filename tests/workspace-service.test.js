@@ -72,3 +72,17 @@ test("filters prototype keys from saved browser state", () => {
   assert.equal(service.get(workspace.id).appState.settings.polluted, undefined);
   assert.equal({}.polluted, undefined);
 });
+
+test("imports a secret-free full workspace with app and analysis state", () => {
+  const service = createWorkspaceService(memoryStore());
+  const workspace = service.create({
+    name: "Portable league",
+    profile: profile("Portable league", "portable"),
+    leagueSnapshot: snapshot("espn", "404", "Portable league", "portable"),
+    appState: { draftLog: [{ playerId: "portable-player" }], favoritePlayerIds: ["portable-player"] },
+    rankingAnalysis: { status: "completed", summary: "Portable summary" }
+  });
+  assert.equal(workspace.rankingAnalysis.summary, "Portable summary");
+  assert.deepEqual(workspace.appState.favoritePlayerIds, ["portable-player"]);
+  assert.equal(workspace.leagueSnapshot.teamContext.rosters.length, 1);
+});

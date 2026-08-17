@@ -146,3 +146,13 @@ test("historical import skips unknown positions instead of guessing", () => {
   assert.equal(parsed.imported, 0);
   assert.equal(parsed.errors.length, 1);
 });
+
+test("normalizes optional dated player archetype metadata", () => {
+  const profile = profiles.normalizeProfile({
+    league: { name: "Metadata", teams: 4, rounds: 4, userManagerId: "me" },
+    playerMetadata: [{ name: "Player One", position: "RB", age: 23.4, asOfYear: 2026, draftYear: 2025, heightIn: 71, weightLb: 214, nflDraftRound: 2, durabilityByYear: { 2025: 58 }, roleClarityByYear: { 2025: 42 } }]
+  });
+  assert.equal(profile.playerMetadata[0].weightLb, 214);
+  assert.equal(profile.playerMetadata[0].durabilityByYear[2025], 58);
+  assert.equal(profiles.toDraftHistory(profile).playerMetadata.length, 1);
+});

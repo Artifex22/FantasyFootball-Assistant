@@ -76,6 +76,15 @@ Matt Harmon remains valuable as a receiver specialist even though his 2023-2025 
 - [NFL Next Gen Stats methodology](https://operations.nfl.com/game-operations-logistics/technology/performance-tracking-data-next-gen-stats)
 - [FantasyPros ECR calculation](https://support.fantasypros.com/hc/en-us/articles/115001219327-What-is-ECR-Expert-Consensus-Rankings-and-how-do-you-calculate-it)
 
+## Manager Archetype Evidence
+
+- Historical manager profiles compare each owner with the same league rather than assuming a universal drafting personality. Rates are regressed for sample size, alias confidence, and metadata coverage.
+- [NFL Next Gen Stats methodology](https://operations.nfl.com/gameday/technology/nfl-next-gen-stats) supports tracking movement, speed, distance, and acceleration as real performance measurements. These traits are eligible future archetype inputs only when a frozen, player-level snapshot is available; the app does not infer them from reputation.
+- [Professional football workload and soft-tissue injury study](https://pubmed.ncbi.nlm.nih.gov/31469616/) found an association between acute workload spikes and injury. This supports treating workload and prior availability as dated variables rather than permanent player labels.
+- Current injury outcomes are not used to infer what a manager knew or preferred in an earlier draft. Injury-discount and ambiguous-role tendencies stay unscored unless `durabilityByYear` or `roleClarityByYear` contains a value frozen for that preseason.
+- Physical size and NFL draft capital are stable enough to attach retrospectively when sourced correctly, but they remain optional because the current public profile does not contain a complete reviewed historical bio table.
+- Construction patterns—same-position double-taps, NFL-team stacks, QB/pass-catcher stacks, same-team RB pairs, and repeat-player loyalty—come directly from imported draft rows and do not require external player metadata.
+
 ## Built-in Context Snapshot
 
 - [Mike Clay 2026 NFL Projection Guide](https://g.espncdn.com/s/ffldraftkit/26/NFLDK2026_CS_ClayProjections2026.pdf): half-PPR player points, volume, games, team schedules, projected standings, unit grades, and coaching context; refreshed August 9, 2026.

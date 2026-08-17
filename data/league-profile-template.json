@@ -26,5 +26,19 @@
     }
   ],
   "finalRosters": [["My Team", "Player name", "Draft", "RB"]],
-  "projectedKeepers": [["my-team", "Player name", 4]]
+  "projectedKeepers": [["my-team", "Player name", 4]],
+  "playerMetadata": [
+    {
+      "name": "Player name",
+      "position": "RB",
+      "age": 23.5,
+      "asOfYear": 2026,
+      "draftYear": 2025,
+      "heightIn": 71,
+      "weightLb": 212,
+      "nflDraftRound": 2,
+      "durabilityByYear": { "2025": 72 },
+      "roleClarityByYear": { "2025": 55 }
+    }
+  ]
 }

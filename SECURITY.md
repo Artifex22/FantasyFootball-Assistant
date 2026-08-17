@@ -20,7 +20,10 @@ This project treats all online information as untrusted text. No downloaded code
 - Local league profiles are git-ignored and parsed as JSON rather than code. Static imports remain in browser `localStorage`; self-hosted profiles and per-league app state are normalized and stored in isolated `.local-data/league-workspaces.json` workspaces.
 - Connector credentials are stored under git-ignored `.local-data` files with restrictive permissions where supported; API status responses never include secret values.
 - Workspace APIs are same-origin only for mutations, cap request bodies, filter prototype-pollution keys, and never include connector credentials in workspace exports or browser bootstrap data.
+- Full workspace imports are normalized through the same inert JSON boundary as locally created profiles; they create a separate workspace rather than overwriting an existing one.
 - The Codex refresh endpoint accepts no browser-supplied command, executable, working directory, file path, or prompt. It starts one fixed `codex exec` workflow with `shell: false`, `workspace-write` sandboxing, and local-only logs. A separately runnable executable must pass a version check before the button is enabled.
+- `connect-chatgpt.sh` on Linux and `connect-chatgpt.cmd` on Windows delegate authentication to the official Codex CLI. ChatGPT passwords, browser cookies, API keys, and the Codex credential cache are not read by Draft Room and are never included in profile exports or releases.
+- Release ZIPs are generated from the explicit allowlist in `scripts/release-manifest.js`, not by recursively archiving the repository. Automated tests reject private path patterns including `.local-data`, ignored league history, HAR files, secrets, logs, and `auth.json`.
 - Yahoo authorization uses OAuth state validation and retains tokens only on the server.
 - ESPN capture uses a dedicated Firefox profile and queries only the two required ESPN cookie names and ESPN league URLs. It retains only `espn_s2`, `SWID`, and normalized league references. HAR contents are filtered to ESPN hosts and discarded after parsing.
 - Mutating connector routes reject cross-origin browser requests.
@@ -41,4 +44,4 @@ This project treats all online information as untrusted text. No downloaded code
 
 ## Verification
 
-Run `node --test`, then inspect response headers from `http://127.0.0.1:4173` before use. No `npm install` or internet access is needed.
+Run `node --test "tests/*.test.js"`, then inspect response headers from `http://127.0.0.1:4173` before use. No `npm install` or internet access is needed.

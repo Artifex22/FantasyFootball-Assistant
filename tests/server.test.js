@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createDraftRoomServer, isAllowedHost, isPrivateLocalPath } = require("../server.js");
+const { createDraftRoomServer, isAllowedHost, isAllowedOrigin, isPrivateLocalPath } = require("../server.js");
 
 async function withServer(callback) {
   const server = createDraftRoomServer();
@@ -20,6 +20,13 @@ test("allows only local hostnames", () => {
   assert.equal(isAllowedHost("localhost"), true);
   assert.equal(isAllowedHost("example.com"), false);
   assert.equal(isAllowedHost("localhost.example.com"), false);
+});
+
+test("allows the configured HTTPS reverse-proxy origin only", () => {
+  assert.equal(isAllowedOrigin({ headers: { host: "draft.example.com", origin: "https://draft.example.com" } }, "https://draft.example.com"), true);
+  assert.equal(isAllowedOrigin({ headers: { host: "127.0.0.1:4173", origin: "http://127.0.0.1:4173" } }, "https://draft.example.com"), true);
+  assert.equal(isAllowedOrigin({ headers: { host: "draft.example.com", origin: "https://draft.example.com.evil" } }, "https://draft.example.com"), false);
+  assert.equal(isAllowedOrigin({ headers: { host: "draft.example.com", origin: "not an origin" } }, "https://draft.example.com"), false);
 });
 
 test("recognizes private local data paths", () => {

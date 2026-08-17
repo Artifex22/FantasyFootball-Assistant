@@ -118,7 +118,7 @@ function createWorkspaceService(store, options = {}) {
       leagueSnapshot: compactSnapshot(snapshot, profile),
       appState: normalizeAppState(input.appState),
       brainIndex: buildBrainIndex(profile),
-      rankingAnalysis: null
+      rankingAnalysis: cleanJson(input.rankingAnalysis)
     };
   }
 

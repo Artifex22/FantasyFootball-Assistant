@@ -10,6 +10,13 @@ if errorlevel 1 (
   exit /b 1
 )
 
+node -e "if (Number(process.versions.node.split('.')[0]) ^< 20) process.exit(1)"
+if errorlevel 1 (
+  echo Node.js 20 or newer is required.
+  pause
+  exit /b 1
+)
+
 if not exist ".local-data" mkdir ".local-data"
 set "DRAFT_ROOM_OPEN_BROWSER=1"
 echo Starting Draft Room. Press Ctrl+C here to stop it.

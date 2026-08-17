@@ -181,6 +181,39 @@
     ].join("\n");
   }
 
+  function normalizeYearScores(input) {
+    const scores = {};
+    if (!input || typeof input !== "object" || Array.isArray(input)) return scores;
+    Object.entries(input).slice(0, 20).forEach(([year, value]) => {
+      const numericYear = Number(year);
+      const numericValue = Number(value);
+      if (Number.isInteger(numericYear) && numericYear >= 2000 && numericYear <= 2100 && Number.isFinite(numericValue)) scores[numericYear] = clamp(numericValue, 0, 100);
+    });
+    return scores;
+  }
+
+  function normalizePlayerMetadata(input) {
+    return (Array.isArray(input) ? input : []).slice(0, 2_000).map((record) => {
+      const name = text(record?.name, "", 80);
+      if (!name) return null;
+      const position = String(record?.position || "").toUpperCase();
+      const numeric = (value, minimum, maximum) => Number.isFinite(Number(value)) ? clamp(Number(value), minimum, maximum) : null;
+      return {
+        name,
+        ...(POSITIONS.has(position) ? { position } : {}),
+        age: numeric(record.age, 18, 50),
+        asOfYear: numeric(record.asOfYear, 2000, 2100),
+        birthYear: numeric(record.birthYear, 1950, 2100),
+        draftYear: numeric(record.draftYear, 1950, 2100),
+        heightIn: numeric(record.heightIn, 60, 90),
+        weightLb: numeric(record.weightLb, 140, 400),
+        nflDraftRound: numeric(record.nflDraftRound, 1, 7),
+        durabilityByYear: normalizeYearScores(record.durabilityByYear),
+        roleClarityByYear: normalizeYearScores(record.roleClarityByYear)
+      };
+    }).filter(Boolean);
+  }
+
   function normalizeProfile(input = {}) {
     const sourceLeague = input.league || input.settings || {};
     const teams = clamp(Number(sourceLeague.teams) || 12, 4, 20);
@@ -210,6 +243,7 @@
       name: text(manager?.name, `Former team ${index + 1}`),
       aliases: (Array.isArray(manager?.aliases) ? manager.aliases : []).map((alias) => text(alias, "Former team"))
     }));
+    const playerMetadata = normalizePlayerMetadata(input.playerMetadata);
     return {
       version: 1,
       id: profileId,
@@ -230,7 +264,8 @@
       formerManagerGroups,
       seasons,
       finalRosters,
-      projectedKeepers
+      projectedKeepers,
+      playerMetadata
     };
   }
 
@@ -251,7 +286,8 @@
       formerManagerGroups: [],
       seasons: [{ year: 2025, league: "Example league", teams: 12, picks: [[1, 1, "Player name", "NFL", "RB", "Team 1"]] }],
       finalRosters: [["My Team", "Player name", "Draft", "RB"]],
-      projectedKeepers: [["my-team", "Player name", 4]]
+      projectedKeepers: [["my-team", "Player name", 4]],
+      playerMetadata: [{ name: "Player name", position: "RB", age: 23.5, asOfYear: 2026, draftYear: 2025, heightIn: 71, weightLb: 212, nflDraftRound: 2, durabilityByYear: { 2025: 72 }, roleClarityByYear: { 2025: 55 } }]
     };
   }
 
@@ -325,7 +361,8 @@
       managerGroups: profile.managerGroups,
       formerManagerGroups: profile.formerManagerGroups,
       finalRosters: profile.finalRosters,
-      projectedKeepers: profile.projectedKeepers
+      projectedKeepers: profile.projectedKeepers,
+      playerMetadata: profile.playerMetadata
     };
   }
 

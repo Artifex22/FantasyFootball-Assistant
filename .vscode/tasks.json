@@ -23,7 +23,7 @@
       "label": "Test Draft Room",
       "type": "process",
       "command": "node",
-      "args": ["--test"],
+      "args": ["--test", "tests/*.test.js"],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     }

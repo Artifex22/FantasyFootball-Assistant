@@ -1,0 +1,34 @@
+[Unit]
+Description=Fantasy Football Draft Room
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=draftroom
+Group=draftroom
+WorkingDirectory=/opt/fantasy-football-assistant
+Environment=NODE_ENV=production
+EnvironmentFile=/etc/draft-room/draft-room.env
+ExecStart=/usr/bin/node /opt/fantasy-football-assistant/server.js
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/opt/fantasy-football-assistant/.local-data
+
+[Install]
+WantedBy=multi-user.target

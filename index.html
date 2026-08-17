@@ -117,12 +117,31 @@
             </div>
           </div>
 
-          <section class="live-draft-board" aria-label="Live snake draft grid">
+          <section class="live-draft-board" id="live-draft-board" aria-label="Live snake draft grid">
             <div class="draft-grid-toolbar">
               <div><span class="status-dot" aria-hidden="true"></span><strong>Live draft tracker</strong></div>
-              <div class="draft-grid-actions"><span id="draft-round-label">Draft rounds · horizontally scrollable</span><button class="custom-pick-button" id="open-custom-pick" type="button">+ Custom pick</button></div>
+              <div class="draft-grid-actions">
+                <span id="draft-round-label">Draft rounds · horizontally scrollable</span>
+                <div class="draft-zoom-control" role="group" aria-label="Draft board zoom">
+                  <span>Zoom</span>
+                  <button id="draft-zoom-out" type="button" aria-label="Zoom draft board out" title="Zoom out">−</button>
+                  <input id="draft-board-zoom" type="range" min="30" max="150" step="5" value="100" aria-label="Draft board zoom percentage" title="Drag to zoom. Ctrl + mouse wheel also works over the board.">
+                  <output id="draft-board-zoom-value" for="draft-board-zoom">100%</output>
+                  <button id="draft-zoom-in" type="button" aria-label="Zoom draft board in" title="Zoom in">+</button>
+                  <button class="draft-fit-button" id="draft-fit-width" type="button" title="Scale the picks so every team fits across the board">Fit teams</button>
+                </div>
+                <label class="draft-insight-toggle"><input id="draft-pick-insights" type="checkbox" checked><span>Pick insights</span></label>
+                <button class="custom-pick-button" id="draft-fill-space" type="button" title="Restore the board to all available page width">Fill space</button>
+                <button class="custom-pick-button" id="expand-draft-board" type="button" aria-pressed="false">Full screen</button>
+                <button class="custom-pick-button" id="open-custom-pick" type="button">+ Custom pick</button>
+              </div>
             </div>
             <div class="draft-grid-scroll"><div class="draft-grid" id="draft-grid"></div></div>
+            <div class="draft-board-resize-rail">
+              <div class="draft-board-resizer" id="draft-board-resizer" role="separator" aria-label="Resize draft board width and height" tabindex="0" title="Drag diagonally to resize the board width and height">
+                <small>Drag to resize board</small><span aria-hidden="true">↘</span>
+              </div>
+            </div>
           </section>
 
           <div class="recommendation-grid" id="recommendations" aria-label="Top recommendations"></div>
@@ -327,7 +346,7 @@
       <div class="content-hero">
         <p class="eyebrow">Local indexed draft memory</p>
         <h2 id="brain-title">Draft brain</h2>
-        <p>Historical behavior informs opponent pressure and return estimates. Low-sample or uncertain team aliases fall back toward league averages instead of pretending certainty.</p>
+        <p>Historical behavior informs opponent pressure and return estimates across position timing, player archetypes, and roster construction. Low-sample, unmatched, or undated traits fall back toward league averages instead of pretending certainty.</p>
       </div>
       <div class="accuracy-summary" id="brain-summary"></div>
       <section class="model-panel brain-order-panel">
@@ -337,6 +356,7 @@
       </section>
       <section class="source-ledger brain-ledger">
         <div class="side-heading"><h3>Manager profiles</h3><span id="manager-history-label">No history imported</span></div>
+        <p class="panel-copy">Archetype rates compare each manager with this league after sample-size and identity-confidence shrinkage. Injury and role tendencies require dated, at-draft evidence; later outcomes are never backfilled as intent.</p>
         <div class="manager-profile-grid" id="manager-profile-grid"></div>
       </section>
       <section class="method-callout">
@@ -557,11 +577,13 @@
               <button class="primary-button" id="save-workspace" type="button">Save profile</button>
               <button class="secondary-button" id="duplicate-workspace" type="button">Duplicate</button>
               <button class="secondary-button" id="export-workspace" type="button">Export full profile</button>
+              <button class="secondary-button" id="import-workspace-trigger" type="button">Import full profile</button>
+              <input class="visually-hidden" id="import-workspace" type="file" accept="application/json,.json">
               <button class="text-button" id="delete-workspace" type="button">Delete</button>
             </div>
           </div>
           <p class="workspace-summary" id="workspace-summary">Loading saved league state…</p>
-          <p class="import-status" id="workspace-action-status" aria-live="polite">Changes autosave locally; use Save profile before intentionally switching devices or shutting down.</p>
+          <p class="import-status" id="workspace-action-status" aria-live="polite">Changes autosave locally. Full profile exports omit connector credentials and can be imported on another self-hosted installation.</p>
         </section>
         <section class="model-panel codex-panel wide-panel">
           <div class="side-heading"><h3>Codex rankings refresh</h3><span id="codex-readiness">Checking CLI…</span></div>

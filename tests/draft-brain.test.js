@@ -118,3 +118,140 @@ test("builds a round-by-round board forecast", () => {
   assert.equal(forecasts.length, 6);
   assert.deepEqual(forecasts.map((forecast) => forecast.managerId), ["alpha", "beta", "beta", "alpha", "alpha", "beta"]);
 });
+
+test("sequential board forecasts do not select the same player twice", () => {
+  const brain = factory.createBrain(history);
+  const availablePlayers = Array.from({ length: 12 }, (_, index) => ({
+    id: `player-${index + 1}`,
+    name: `Player ${index + 1}`,
+    team: index % 2 ? "AAA" : "BBB",
+    position: ["RB", "WR", "QB", "TE"][index % 4],
+    rank: index + 1
+  }));
+  const forecasts = brain.predictBoard({
+    teams: 2,
+    draftOrder: ["alpha", "beta"],
+    throughRound: 3,
+    availablePlayers
+  });
+  const selectedIds = forecasts.map((forecast) => forecast.selectedPlayer?.playerId).filter(Boolean);
+
+  assert.equal(selectedIds.length, 6);
+  assert.equal(new Set(selectedIds).size, selectedIds.length);
+});
+
+test("conditions manager round forecasts on the simulated prior roster", () => {
+  const receiverHeavyHistory = {
+    managerGroups: [{ id: "receiver-heavy", name: "Receiver Heavy", aliases: ["Receiver Heavy"], confidence: "high" }],
+    league: { teams: 1, rounds: 16 },
+    seasons: Array.from({ length: 5 }, (_, seasonIndex) => ({
+      year: 2021 + seasonIndex,
+      league: "Test",
+      picks: Array.from({ length: 16 }, (_, roundIndex) => [roundIndex + 1, 1, `Receiver ${seasonIndex}-${roundIndex}`, "AAA", "WR", "Receiver Heavy"])
+    }))
+  };
+  const brain = factory.createBrain(receiverHeavyHistory);
+  const availablePlayers = [
+    { id: "passer", name: "Passer", team: "AAA", position: "QB", rank: 1 },
+    { id: "runner", name: "Runner", team: "AAA", position: "RB", rank: 1 },
+    { id: "receiver", name: "Receiver", team: "AAA", position: "WR", rank: 1 },
+    { id: "tight-end", name: "Tight End", team: "AAA", position: "TE", rank: 1 },
+    { id: "kicker", name: "Kicker", team: "AAA", position: "K", rank: 1 },
+    { id: "defense", name: "Defense", team: "AAA", position: "DST", rank: 1 }
+  ];
+  const simulation = brain.simulateManagerDraft("receiver-heavy", {
+    teams: 1,
+    rounds: 16,
+    draftOrder: ["receiver-heavy"],
+    availablePlayers,
+    startingQbs: 1
+  });
+
+  assert.equal(simulation.rounds.length, 16);
+  assert.ok(simulation.rosterCounts.QB >= 1);
+  assert.ok(simulation.rosterCounts.RB >= 2);
+  assert.ok(simulation.rosterCounts.WR >= 2);
+  assert.ok(simulation.rosterCounts.TE >= 1);
+  assert.ok(simulation.rosterCounts.K >= 1);
+  assert.ok(simulation.rosterCounts.DST >= 1);
+  assert.ok(simulation.rosterCounts.WR < 10);
+});
+
+test("learns rookie and age archetypes against the league baseline", () => {
+  const seasons = Array.from({ length: 6 }, (_, index) => ({
+    year: 2020 + index,
+    league: "Archetype test",
+    teams: 2,
+    picks: [
+      [1, 1, `Young ${index}`, "AAA", "WR", "Alpha"],
+      [1, 2, `Veteran ${index}`, "BBB", "WR", "Beta"]
+    ]
+  }));
+  const playerProfiles = seasons.flatMap((season, index) => [
+    { name: `Young ${index}`, position: "WR", age: 23, asOfYear: season.year, draftYear: season.year },
+    { name: `Veteran ${index}`, position: "WR", age: 30, asOfYear: season.year, draftYear: season.year - 7 }
+  ]);
+  const brain = factory.createBrain({ ...history, seasons }, { currentSeason: 2026, playerProfiles });
+  const alpha = brain.personalityFor("alpha");
+  const rookie = alpha.archetypes.find((signal) => signal.id === "rookie");
+  assert.equal(alpha.coverage, 100);
+  assert.ok(rookie.lift > 0);
+  assert.equal(rookie.observedRate, 1);
+  assert.equal(rookie.leagueRate, 0.5);
+});
+
+test("uses supported manager archetypes to separate same-market candidates", () => {
+  const seasons = Array.from({ length: 6 }, (_, index) => ({ year: 2020 + index, league: "Archetype test", teams: 2, picks: [[1, 1, `Rookie ${index}`, "AAA", "WR", "Alpha"], [1, 2, `Veteran ${index}`, "BBB", "WR", "Beta"]] }));
+  const historicalProfiles = seasons.flatMap((season, index) => [
+    { name: `Rookie ${index}`, age: 22, asOfYear: season.year, draftYear: season.year },
+    { name: `Veteran ${index}`, age: 30, asOfYear: season.year, draftYear: season.year - 7 }
+  ]);
+  const brain = factory.createBrain({ ...history, seasons }, {
+    currentSeason: 2026,
+    playerProfiles: [...historicalProfiles, { name: "Current Rookie", age: 22, asOfYear: 2026, draftYear: 2026 }, { name: "Current Veteran", age: 30, asOfYear: 2026, draftYear: 2019 }]
+  });
+  const prediction = brain.predictPick("alpha", 1, [], {
+    currentOverall: 1,
+    availablePlayers: [
+      { id: "current-rookie", name: "Current Rookie", team: "CCC", position: "WR", rank: 1 },
+      { id: "current-veteran", name: "Current Veteran", team: "DDD", position: "WR", rank: 1 }
+    ],
+    limit: 2
+  });
+  assert.equal(prediction.players[0].name, "Current Rookie");
+  assert.ok(prediction.players[0].archetypeAdjustment > prediction.players[1].archetypeAdjustment);
+  assert.ok(prediction.players[0].reasons.some((reason) => /rookie bets/i.test(reason)));
+});
+
+test("does not infer historical injury appetite from current durability", () => {
+  const seasons = Array.from({ length: 6 }, (_, index) => ({ year: 2020 + index, league: "Injury test", teams: 2, picks: [[1, 1, `Risk ${index}`, "AAA", "RB", "Alpha"], [1, 2, `Safe ${index}`, "BBB", "RB", "Beta"]] }));
+  const playerProfiles = seasons.flatMap((season, index) => [
+    { name: `Risk ${index}`, draftYear: season.year - 1, age: 23, asOfYear: season.year, durability: 20 },
+    { name: `Safe ${index}`, draftYear: season.year - 1, age: 23, asOfYear: season.year, durability: 95 }
+  ]);
+  const brain = factory.createBrain({ ...history, seasons }, { currentSeason: 2026, playerProfiles });
+  assert.ok(brain.personalityFor("alpha").limitations.includes("Injury"));
+  assert.equal(brain.profileFor("alpha").archetypeSignals.find((signal) => signal.id === "injuryBet").eligible, 0);
+});
+
+test("treats only three-player team concentrations as team stacks", () => {
+  const seasons = Array.from({ length: 5 }, (_, index) => ({
+    year: 2021 + index,
+    league: "Construction test",
+    teams: 2,
+    picks: [
+      [1, 1, `Alpha One ${index}`, "AAA", "RB", "Alpha"],
+      [2, 2, `Alpha Two ${index}`, "AAA", "WR", "Alpha"],
+      [1, 2, `Beta One ${index}`, "BBB", "QB", "Beta"],
+      [2, 1, `Beta Two ${index}`, "BBB", "WR", "Beta"],
+      [3, 2, `Beta Three ${index}`, "BBB", "TE", "Beta"]
+    ]
+  }));
+  const brain = factory.createBrain({ ...history, seasons });
+  const alphaStack = brain.personalityFor("alpha").construction.find((signal) => signal.id === "teamStack");
+  const betaStack = brain.personalityFor("beta").construction.find((signal) => signal.id === "teamStack");
+
+  assert.equal(alphaStack.observedRate, 0);
+  assert.equal(betaStack.observedRate, 1);
+  assert.equal(betaStack.label, "Three-player NFL team stacks");
+});

@@ -4,13 +4,48 @@ A dependency-free, local-first fantasy football draft decision assistant. The pu
 
 The Accuracy Lab keeps historical outcomes outside the preseason ranking path, separates directional critics from uncertainty calibration, and blocks historical weights from the live model until strict multi-season promotion gates pass. The public release contains one privacy-safe public-source pilot and no league-specific draft prices.
 
-## Fast Local Setup
+## Raspberry Pi and Linux setup
 
-1. Double-click `setup-local.cmd` once to verify Node.js and create the private local-data folder.
-2. Double-click `start-draft-room.cmd` whenever you want to use the app.
-3. The browser opens to `http://127.0.0.1:4173` automatically.
+Install the signed operating-system prerequisites, then run the Linux setup helper:
 
-No PowerShell execution-policy change and no `npm install` are required.
+```bash
+sudo apt update
+sudo apt install --no-install-recommends nodejs unzip
+./setup-local.sh
+./start-draft-room.sh
+```
+
+The foreground server is available at `http://127.0.0.1:4173`. For a persistent Raspberry Pi service with authenticated remote access, run `sudo ./setup-pi.sh` and follow `RASPBERRY_PI_HOSTING.md`.
+
+Build a reviewed Linux ARM64 release with:
+
+```bash
+node scripts/package-release.js --platform linux-arm64
+```
+
+This writes `dist/FantasyFootball-Assistant-<version>-linux-arm64.zip` and its SHA-256 checksum. The Linux package contains only Linux shell launchers and excludes Windows setup scripts.
+
+No `npm install` is required. The project has no third-party runtime dependencies.
+
+## Windows setup
+
+From a downloadable Windows release generated with `node scripts/package-release.js --platform windows`:
+
+1. Extract `FantasyFootball-Assistant-<version>-windows.zip`.
+2. Double-click `install.cmd`. It installs to `%LOCALAPPDATA%\FantasyFootballAssistant` and creates desktop launchers.
+3. Use **Fantasy Football Assistant** on the desktop to start the local server.
+
+The installer preserves an existing `.local-data` folder during upgrades. It never downloads code or dependencies, and the release archive excludes local leagues, cookies, tokens, HAR files, browser profiles, logs, and ChatGPT/Codex credentials.
+
+No PowerShell execution-policy change is required.
+
+Create a cross-platform maintainer archive only when needed with:
+
+```powershell
+node scripts/package-release.js --platform portable
+```
+
+The release commands write versioned ZIPs and SHA-256 checksums under `dist/` from an explicit public-file allowlist.
 
 ## Run in VS Code
 
@@ -24,10 +59,10 @@ Or run directly:
 node server.js
 ```
 
-Run tests with:
+Run the maintained source tests with:
 
-```powershell
-node --test
+```bash
+node --test "tests/*.test.js"
 ```
 
 No package installation is required. The project has no third-party runtime dependencies, remote scripts, web fonts, trackers, or analytics. Optional league connectors make read-only provider requests from the self-hosted Node server after explicit authorization.
@@ -36,7 +71,7 @@ No package installation is required. The project has no third-party runtime depe
 
 The app is static and needs no build step. In the GitHub repository, open **Settings → Pages**, choose **Deploy from a branch**, select the release branch, and use `/ (root)` as the folder.
 
-Each browser keeps its own static league profile and draft state. Export the full workspace from the self-hosted app, or export the profile and draft state separately from the static app, when moving between devices.
+Each browser keeps its own static league profile and draft state. For a complete self-hosted migration, use **Data & sources → Export full profile** on the old computer and **Import full profile** on the new one. The file carries league settings, keepers, historical manager brains, draft state, favorites, rosters, waivers, and matchups, but never connector or ChatGPT credentials.
 
 GitHub Pages cannot run the connector server, OAuth callback, or private credential store. The static app continues to support manual JSON/CSV imports; run the Node server for ESPN/Yahoo sync.
 
@@ -77,8 +112,11 @@ Open **Data & sources → League profile** and import a JSON file based on `data
 - Current manager IDs, display names, and historical aliases.
 - Historical picks as `[round, slot, player, NFL team, position, manager alias]` rows.
 - Final roster acquisition rows and projected keeper costs.
+- Optional `playerMetadata` records for deeper manager archetypes: `age`, `asOfYear`, `draftYear`, `heightIn`, `weightLb`, `nflDraftRound`, and dated 0–100 `durabilityByYear` / `roleClarityByYear` maps.
 
 The profile is parsed as inert JSON and normalized. In static mode it stays in that browser. In self-hosted mode it becomes a private workspace under `.local-data`, and a full workspace export can include both the profile and its saved app state.
+
+The brain automatically matches historical names to the reviewed active-player catalog for age and experience tendencies. Size, draft-capital, injury-at-draft, and role-ambiguity conclusions appear only when their supporting metadata exists. Every manager card shows trait coverage, observed rate, league baseline, shrunk percentage-point difference, eligible sample, build patterns, and unavailable categories.
 
 ## Connect ESPN or Yahoo
 
@@ -94,7 +132,11 @@ Connector secrets are stored only under `.local-data/`, which is excluded from G
 
 The **Data & sources → Codex rankings refresh** button starts a separate `codex exec` process; it cannot post into this current desktop task. The job uses `--sandbox workspace-write`, `--ask-for-approval never`, a fixed server-owned prompt, and local log files under `.local-data/analysis-jobs`.
 
-The Microsoft Store desktop app's bundled executable may block child-process launch. Install a separately runnable Codex CLI or set `CODEX_CLI_PATH` to an absolute trusted executable, then restart Draft Room. The app disables the button and shows a readiness explanation when no runnable CLI is available. See the official [Codex developer command reference](https://developers.openai.com/codex/cli/reference) for `codex exec` behavior.
+On Linux, run `./connect-chatgpt.sh` to check a separately installed Codex CLI and start its supported browser-based `codex login` flow. Windows releases provide the equivalent `connect-chatgpt.cmd`. Draft Room never receives or stores the ChatGPT password, browser cookies, API key, or Codex credential cache. The CLI supports ChatGPT subscription sign-in or API-key authentication; see the official [OpenAI authentication documentation](https://learn.chatgpt.com/docs/auth).
+
+The Microsoft Store desktop app's bundled executable may block child-process launch. Install a separately runnable Codex CLI or set `CODEX_CLI_PATH` to an absolute trusted executable, then restart Draft Room. The app disables the button and shows a readiness explanation when no runnable CLI is available. See the official [Codex CLI documentation](https://learn.chatgpt.com/docs/codex/cli) for setup and command behavior.
+
+`SESSION_HANDOFF.md` and `AGENTS.md` orient a new coding session to the architecture, privacy boundaries, commands, model governance, and current workflow without embedding any private league context.
 
 ## Important Limitation
 
